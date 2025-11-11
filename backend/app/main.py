@@ -5,8 +5,12 @@ Main FastAPI application entry point
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from contextlib import asynccontextmanager
 import logging
+import os
+from pathlib import Path
 from app.core.config import settings
 from app.api.v1.router import api_router
 from app.core.logging import setup_logging
@@ -43,11 +47,11 @@ app = FastAPI(
     openapi_url="/api/openapi.json",
 )
 
-# Configure CORS
+# Configure CORS - Allow all for single service setup
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.CORS_ORIGINS,
-    allow_credentials=True,
+    allow_origins=["*"],  # Allow all origins
+    allow_credentials=False,  # Must be False when allow_origins=["*"]
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -74,3 +78,19 @@ async def health_check():
         "environment": settings.APP_ENV,
         "project": settings.GCP_PROJECT_ID,
     }
+
+
+# Mount static files for frontend (if they exist)
+static_dir = Path(__file__).parent.parent / "static"
+if static_dir.exists():
+    app.mount("/assets", StaticFiles(directory=str(static_dir / "assets")), name="assets")
+    
+    @app.get("/{full_path:path}")
+    async def serve_spa(full_path: str):
+        """Serve the React SPA for all non-API routes"""
+        # Check if file exists in static directory
+        file_path = static_dir / full_path
+        if file_path.is_file():
+            return FileResponse(file_path)
+        # Default to index.html for SPA routing
+        return FileResponse(static_dir / "index.html")

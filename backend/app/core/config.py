@@ -44,9 +44,9 @@ class Settings(BaseSettings):
     )
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     
-    # CORS
+    # CORS - Allow all origins in production (single service setup)
     CORS_ORIGINS: List[str] = Field(
-        default=["http://localhost:3000", "http://localhost:5173"],
+        default=["*"],
         env="CORS_ORIGINS"
     )
     
