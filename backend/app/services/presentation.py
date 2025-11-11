@@ -11,6 +11,7 @@ from pptx import Presentation
 from pdf2image import convert_from_path
 import tempfile
 import shutil
+import zipfile
 from app.core.config import settings
 from app.services.storage import StorageService
 from app.services.presentation_converter import PresentationConverter
@@ -59,16 +60,12 @@ class PresentationService:
                 else:
                     raise ValueError(f"Unsupported presentation format: {file_ext}")
                 
-                # Upload slides to GCS
-                uploaded_slides = await self._upload_slides(slides, job_id)
-                
-                # Copy Q&A image to output
-                qa_path = await self._copy_qa_image(job_id)
+                # Create ZIP file with all slides + qa.jpg
+                zip_path = await self._create_slides_zip(slides, job_id)
                 
                 return {
                     "slide_count": len(slides),
-                    "slides": uploaded_slides,
-                    "qa_image": qa_path,
+                    "zip_path": zip_path,
                     "format": output_format
                 }
                 
@@ -155,47 +152,48 @@ class PresentationService:
             raise
             
         
-    async def _upload_slides(
+    async def _create_slides_zip(
         self,
         slides: List[Dict[str, Any]],
         job_id: str
-    ) -> List[Dict[str, Any]]:
-        """Upload extracted slides to GCS"""
-        uploaded = []
-        
-        for slide in slides:
-            # Define GCS path
-            gcs_path = f"outputs/{job_id}/slides/{slide['filename']}"
+    ) -> str:
+        """Create a ZIP file containing all slides + qa.jpg"""
+        try:
+            # Create temporary ZIP file
+            temp_zip = tempfile.NamedTemporaryFile(delete=False, suffix='.zip')
+            temp_zip_path = temp_zip.name
+            temp_zip.close()
             
-            # Upload slide
+            logger.info(f"Creating slides ZIP at {temp_zip_path}")
+            
+            with zipfile.ZipFile(temp_zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+                # Add all slides
+                for slide in slides:
+                    zipf.write(slide['local_path'], slide['filename'])
+                    logger.debug(f"Added {slide['filename']} to ZIP")
+                
+                # Add qa.jpg (only once)
+                qa_local_path = Path(__file__).parent.parent.parent / "qa.jpg"
+                if qa_local_path.exists():
+                    zipf.write(str(qa_local_path), "qa.jpg")
+                    logger.info("Added qa.jpg to ZIP")
+                else:
+                    logger.warning(f"qa.jpg not found at {qa_local_path}")
+            
+            # Upload ZIP to GCS
+            gcs_path = f"outputs/{job_id}/slides.zip"
             await self.storage_service.upload_file(
-                local_path=slide['local_path'],
+                local_path=temp_zip_path,
                 gcs_path=gcs_path,
-                content_type=f"image/{Path(slide['local_path']).suffix[1:]}"
+                content_type="application/zip"
             )
             
-            uploaded.append({
-                "number": slide['number'],
-                "filename": slide['filename'],
-                "gcs_path": gcs_path
-            })
+            # Clean up temp ZIP
+            Path(temp_zip_path).unlink()
             
-        return uploaded
-        
-    async def _copy_qa_image(self, job_id: str) -> str:
-        """Copy Q&A image to job output directory"""
-        try:
-            # Source Q&A image should be in the project root
-            # For now, we'll assume it's uploaded to GCS during setup
-            source_path = "static/qa.jpg"
-            dest_path = f"outputs/{job_id}/slides/qa.jpg"
-            
-            # Copy the Q&A image
-            await self.storage_service.copy_file(source_path, dest_path)
-            
-            return dest_path
+            logger.info(f"Uploaded slides ZIP to {gcs_path}")
+            return gcs_path
             
         except Exception as e:
-            logger.warning(f"Could not copy Q&A image: {str(e)}")
-            # Return a placeholder path - the image can be added manually
-            return f"outputs/{job_id}/slides/qa.jpg"
+            logger.error(f"Error creating slides ZIP: {str(e)}")
+            raise

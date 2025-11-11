@@ -13,33 +13,7 @@ import clsx from 'clsx'
 import toast from 'react-hot-toast'
 
 const JobsSection = () => {
-  const { jobs, getJobStatus, getJobResults, pollJobStatus } = useVideo()
-  const [localJobs, setLocalJobs] = useState([])
-
-  useEffect(() => {
-    // Initialize local jobs from context
-    setLocalJobs(jobs)
-  }, [jobs])
-
-  useEffect(() => {
-    // Set up polling for active jobs
-    const cleanupFunctions = []
-    
-    localJobs.forEach(job => {
-      if (job.status === 'processing' || job.status === 'pending') {
-        const cleanup = pollJobStatus(job.job_id, (updatedJob) => {
-          setLocalJobs(prev => 
-            prev.map(j => j.job_id === updatedJob.job_id ? updatedJob : j)
-          )
-        })
-        cleanupFunctions.push(cleanup)
-      }
-    })
-
-    return () => {
-      cleanupFunctions.forEach(cleanup => cleanup())
-    }
-  }, [localJobs, pollJobStatus])
+  const { jobs, getJobResults } = useVideo()
 
   const handleDownload = async (jobId, fileType) => {
     try {
@@ -100,22 +74,22 @@ const JobsSection = () => {
     return path.split('/').pop()
   }
 
-  if (localJobs.length === 0) {
+  if (jobs.length === 0) {
     return null
   }
   
-  console.log('Rendering jobs:', localJobs)
+  console.log('Rendering jobs:', jobs)
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-xl font-semibold text-gray-100">Processing Jobs</h2>
         <div className="text-sm text-gray-400">
-          {localJobs.filter(j => j.status === 'processing').length} active • {localJobs.filter(j => j.status === 'completed').length} completed
+          {jobs.filter(j => j.status === 'processing').length} active • {jobs.filter(j => j.status === 'completed').length} completed
         </div>
       </div>
 
-      {localJobs.map((job) => (
+      {jobs.map((job) => (
         <div key={job.job_id} className="card">
           <div className="p-6">
             <div className="flex items-start justify-between">

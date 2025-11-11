@@ -156,21 +156,30 @@ export const VideoProvider = ({ children }) => {
     }
   }, [])
 
-  // Poll job status
-  const pollJobStatus = useCallback(async (jobId, onUpdate) => {
+  // Poll job status and update jobs state
+  const pollJobStatus = useCallback((jobId) => {
     const interval = setInterval(async () => {
       try {
-        const status = await getJobStatus(jobId)
-        onUpdate(status)
+        const updatedJob = await getJobStatus(jobId)
         
-        if (status.status === 'completed' || status.status === 'failed' || status.status === 'cancelled') {
+        // Update the job in the jobs state
+        setJobs(prev => 
+          prev.map(j => j.job_id === jobId ? { ...j, ...updatedJob } : j)
+        )
+        
+        if (updatedJob.status === 'completed' || updatedJob.status === 'failed' || updatedJob.status === 'cancelled') {
           clearInterval(interval)
+          if (updatedJob.status === 'completed') {
+            toast.success(`Processing completed for job ${jobId}`)
+          } else if (updatedJob.status === 'failed') {
+            toast.error(`Processing failed for job ${jobId}`)
+          }
         }
       } catch (error) {
         console.error('Error polling job status:', error)
         clearInterval(interval)
       }
-    }, 2000) // Poll every 2 seconds
+    }, 3000) // Poll every 3 seconds
     
     return () => clearInterval(interval)
   }, [getJobStatus])
@@ -220,6 +229,9 @@ export const VideoProvider = ({ children }) => {
           presentationUpload.file_path
         )
         
+        // Start polling for this job
+        pollJobStatus(job.job_id)
+        
         // Update status
         setUploadQueue(prev => 
           prev.map(q => q.id === item.id ? { ...q, status: 'completed', jobId: job.job_id } : q)
@@ -247,7 +259,7 @@ export const VideoProvider = ({ children }) => {
     }
     
     setIsLoading(false)
-  }, [uploadQueue, getUploadUrl, getPresentationUploadUrl, uploadToGCS, processVideo])
+  }, [uploadQueue, getUploadUrl, getPresentationUploadUrl, uploadToGCS, processVideo, pollJobStatus])
 
   // Clear queue
   const clearQueue = useCallback(() => {

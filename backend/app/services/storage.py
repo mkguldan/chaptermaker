@@ -133,7 +133,7 @@ class StorageService:
         """
         try:
             # Determine which bucket based on path
-            if file_path.startswith("outputs/"):
+            if file_path.startswith("outputs/") or file_path.startswith("job-tracking/"):
                 bucket = self.output_bucket
             else:
                 bucket = self.upload_bucket
@@ -171,7 +171,7 @@ class StorageService:
         """
         try:
             # Determine bucket
-            if gcs_path.startswith("outputs/"):
+            if gcs_path.startswith("outputs/") or gcs_path.startswith("job-tracking/"):
                 bucket = self.output_bucket
             else:
                 bucket = self.upload_bucket
