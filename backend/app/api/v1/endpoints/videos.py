@@ -47,8 +47,12 @@ async def get_upload_url(
                 detail=f"Invalid file type. Allowed video: {settings.ALLOWED_VIDEO_EXTENSIONS}, audio: {settings.ALLOWED_AUDIO_EXTENSIONS}"
             )
         
-        # Determine content type
-        content_type = "audio/*" if is_audio else "video/*"
+        # Determine exact content type based on extension
+        import mimetypes
+        content_type, _ = mimetypes.guess_type(filename)
+        if not content_type:
+            # Fallback to generic types
+            content_type = "audio/mpeg" if is_audio else "video/mp4"
         logger.info(f"File type: {'audio' if is_audio else 'video'}, content_type: {content_type}")
         
         # Generate signed URL
