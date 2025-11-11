@@ -41,7 +41,7 @@ class PresentationService:
             output_format: Image format for slides (jpg/png)
             
         Returns:
-            Dictionary with slide information and paths
+            Dictionary with slide information and extracted slides
         """
         try:
             logger.info(f"Extracting slides from {presentation_path}")
@@ -60,23 +60,16 @@ class PresentationService:
                 else:
                     raise ValueError(f"Unsupported presentation format: {file_ext}")
                 
-                # Create ZIP file with all slides + qa.jpg
-                zip_path = await self._create_slides_zip(slides, job_id)
-                
                 return {
                     "slide_count": len(slides),
-                    "zip_path": zip_path,
+                    "slides": slides,  # Keep slides for later ZIP creation
                     "format": output_format
                 }
                 
             finally:
-                # Clean up temporary files
+                # Clean up presentation file
                 if Path(local_path).exists():
                     Path(local_path).unlink()
-                # Clean up extracted slide files
-                for slide_info in slides:
-                    if Path(slide_info['local_path']).exists():
-                        Path(slide_info['local_path']).unlink()
                         
         except Exception as e:
             logger.error(f"Error extracting slides: {str(e)}")
@@ -152,19 +145,32 @@ class PresentationService:
             raise
             
         
-    async def _create_slides_zip(
+    async def create_slides_zip_from_results(
         self,
-        slides: List[Dict[str, Any]],
-        job_id: str
+        slide_results: Dict[str, Any],
+        job_id: str,
+        include_qa: bool = False
     ) -> str:
-        """Create a ZIP file containing all slides + qa.jpg"""
+        """
+        Create a ZIP file from extracted slides
+        
+        Args:
+            slide_results: Results from extract_slides containing slides list
+            job_id: Job ID for output path
+            include_qa: Whether to include qa.jpg in the ZIP
+            
+        Returns:
+            GCS path to the uploaded ZIP file
+        """
         try:
+            slides = slide_results.get("slides", [])
+            
             # Create temporary ZIP file
             temp_zip = tempfile.NamedTemporaryFile(delete=False, suffix='.zip')
             temp_zip_path = temp_zip.name
             temp_zip.close()
             
-            logger.info(f"Creating slides ZIP at {temp_zip_path}")
+            logger.info(f"Creating slides ZIP at {temp_zip_path} (include_qa={include_qa})")
             
             with zipfile.ZipFile(temp_zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
                 # Add all slides
@@ -172,13 +178,16 @@ class PresentationService:
                     zipf.write(slide['local_path'], slide['filename'])
                     logger.debug(f"Added {slide['filename']} to ZIP")
                 
-                # Add qa.jpg (only once) - it's in /app/qa.jpg in the container
-                qa_local_path = Path("/app/qa.jpg")
-                if qa_local_path.exists():
-                    zipf.write(str(qa_local_path), "qa.jpg")
-                    logger.info("Added qa.jpg to ZIP")
+                # Add qa.jpg only if there are Q&A questions detected
+                if include_qa:
+                    qa_local_path = Path("/app/qa.jpg")
+                    if qa_local_path.exists():
+                        zipf.write(str(qa_local_path), "qa.jpg")
+                        logger.info("Added qa.jpg to ZIP (Q&A detected)")
+                    else:
+                        logger.warning(f"Q&A detected but qa.jpg not found at {qa_local_path}")
                 else:
-                    logger.warning(f"qa.jpg not found at {qa_local_path}")
+                    logger.info("No Q&A detected, skipping qa.jpg")
             
             # Upload ZIP to GCS
             gcs_path = f"outputs/{job_id}/slides.zip"
@@ -188,8 +197,11 @@ class PresentationService:
                 content_type="application/zip"
             )
             
-            # Clean up temp ZIP
+            # Clean up temp ZIP and slide files
             Path(temp_zip_path).unlink()
+            for slide in slides:
+                if Path(slide['local_path']).exists():
+                    Path(slide['local_path']).unlink()
             
             logger.info(f"Uploaded slides ZIP to {gcs_path}")
             return gcs_path

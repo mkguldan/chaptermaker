@@ -69,7 +69,7 @@ class VideoProcessorService:
                 message="Starting video processing"
             )
             
-            # Step 1: Extract slides from presentation
+            # Step 1: Extract slides from presentation (but don't create ZIP yet)
             await self.job_manager.update_job(
                 job_id,
                 JobStatusEnum.PROCESSING,
@@ -110,6 +110,24 @@ class VideoProcessorService:
                 slide_count=slide_results["slide_count"],
                 custom_prompts=options.get("custom_prompts")
             )
+            
+            # Step 3.5: Check for Q&A and create ZIP with qa.jpg only if Q&A exists
+            await self.job_manager.update_job(
+                job_id,
+                JobStatusEnum.PROCESSING,
+                progress=85,
+                message="Creating slides package"
+            )
+            
+            has_qa = any(chapter.get('image_name') == 'qa' for chapter in chapters)
+            logger.info(f"Q&A detection for job {job_id}: {has_qa}")
+            
+            zip_path = await self.presentation_service.create_slides_zip_from_results(
+                slide_results=slide_results,
+                job_id=job_id,
+                include_qa=has_qa
+            )
+            slide_results["zip_path"] = zip_path
             
             # Step 4: Generate output files
             await self.job_manager.update_job(
