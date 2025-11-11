@@ -16,6 +16,7 @@ export const VideoProvider = ({ children }) => {
   const [jobs, setJobs] = useState([])
   const [isLoading, setIsLoading] = useState(false)
   const [uploadQueue, setUploadQueue] = useState([])
+  const [uploadProgress, setUploadProgress] = useState({})
 
   // Get upload URL from backend
   const getUploadUrl = useCallback(async (filename) => {
@@ -43,26 +44,50 @@ export const VideoProvider = ({ children }) => {
     }
   }, [])
 
-  // Upload file to GCS using signed URL
-  const uploadToGCS = useCallback(async (file, uploadUrl) => {
-    try {
-      const response = await fetch(uploadUrl, {
-        method: 'PUT',
-        body: file,
-        headers: {
-          'Content-Type': file.type,
-        },
+  // Upload file to GCS using signed URL with progress tracking
+  const uploadToGCS = useCallback(async (file, uploadUrl, itemId) => {
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest()
+      
+      // Track upload progress
+      xhr.upload.addEventListener('progress', (e) => {
+        if (e.lengthComputable) {
+          const percentComplete = Math.round((e.loaded / e.total) * 100)
+          const speed = e.loaded / ((Date.now() - startTime) / 1000) // bytes per second
+          
+          setUploadProgress(prev => ({
+            ...prev,
+            [itemId]: {
+              progress: percentComplete,
+              loaded: e.loaded,
+              total: e.total,
+              speed: speed
+            }
+          }))
+        }
       })
       
-      if (!response.ok) {
-        throw new Error('Upload failed')
-      }
+      xhr.addEventListener('load', () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          resolve(true)
+        } else {
+          reject(new Error(`Upload failed with status ${xhr.status}: ${xhr.statusText}`))
+        }
+      })
       
-      return true
-    } catch (error) {
-      console.error('Error uploading to GCS:', error)
-      throw error
-    }
+      xhr.addEventListener('error', () => {
+        reject(new Error('Network error during upload'))
+      })
+      
+      xhr.addEventListener('abort', () => {
+        reject(new Error('Upload aborted'))
+      })
+      
+      const startTime = Date.now()
+      xhr.open('PUT', uploadUrl, true)
+      xhr.setRequestHeader('Content-Type', file.type)
+      xhr.send(file)
+    })
   }, [])
 
   // Process single video
@@ -162,18 +187,24 @@ export const VideoProvider = ({ children }) => {
       try {
         // Update status
         setUploadQueue(prev => 
-          prev.map(q => q.id === item.id ? { ...q, status: 'uploading' } : q)
+          prev.map(q => q.id === item.id ? { ...q, status: 'uploading_video' } : q)
         )
         
         // Upload video
         const videoUpload = await getUploadUrl(item.video.name)
-        await uploadToGCS(item.video, videoUpload.upload_url)
+        await uploadToGCS(item.video, videoUpload.upload_url, `${item.id}-video`)
         
         // Upload presentation
+        setUploadQueue(prev => 
+          prev.map(q => q.id === item.id ? { ...q, status: 'uploading_presentation' } : q)
+        )
         const presentationUpload = await getPresentationUploadUrl(item.presentation.name)
-        await uploadToGCS(item.presentation, presentationUpload.upload_url)
+        await uploadToGCS(item.presentation, presentationUpload.upload_url, `${item.id}-presentation`)
         
         // Process video
+        setUploadQueue(prev => 
+          prev.map(q => q.id === item.id ? { ...q, status: 'processing' } : q)
+        )
         const job = await processVideo(
           videoUpload.file_path,
           presentationUpload.file_path
@@ -184,6 +215,14 @@ export const VideoProvider = ({ children }) => {
           prev.map(q => q.id === item.id ? { ...q, status: 'completed', jobId: job.job_id } : q)
         )
         
+        // Clear progress
+        setUploadProgress(prev => {
+          const newProgress = { ...prev }
+          delete newProgress[`${item.id}-video`]
+          delete newProgress[`${item.id}-presentation`]
+          return newProgress
+        })
+        
         toast.success(`Started processing ${item.video.name}`)
         
       } catch (error) {
@@ -193,7 +232,7 @@ export const VideoProvider = ({ children }) => {
           prev.map(q => q.id === item.id ? { ...q, status: 'failed', error: error.message } : q)
         )
         
-        toast.error(`Failed to process ${item.video.name}`)
+        toast.error(`Failed to process ${item.video.name}: ${error.message}`)
       }
     }
     
@@ -209,6 +248,7 @@ export const VideoProvider = ({ children }) => {
     jobs,
     isLoading,
     uploadQueue,
+    uploadProgress,
     getUploadUrl,
     getPresentationUploadUrl,
     uploadToGCS,
