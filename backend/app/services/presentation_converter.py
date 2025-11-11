@@ -118,6 +118,9 @@ class PresentationConverter:
             
             # Save images
             slides = []
+            # Map format for PIL (jpg -> JPEG)
+            pil_format = "JPEG" if output_format.lower() == "jpg" else output_format.upper()
+            
             for idx, image in enumerate(images, 1):
                 filename = f"{idx:02d}.{output_format}"
                 output_path = Path(output_dir) / filename
@@ -126,7 +129,7 @@ class PresentationConverter:
                 output_path.parent.mkdir(parents=True, exist_ok=True)
                 
                 # Save image with high quality
-                image.save(output_path, output_format.upper(), quality=95)
+                image.save(output_path, pil_format, quality=95)
                 
                 slides.append({
                     "number": idx,

@@ -66,7 +66,7 @@ class VideoProcessorService:
                 job_id,
                 JobStatusEnum.PROCESSING,
                 progress=0,
-                message="Starting video processing"
+                message="🚀 Initializing video processing pipeline"
             )
             
             # Step 1: Extract slides from presentation (but don't create ZIP yet)
@@ -74,7 +74,7 @@ class VideoProcessorService:
                 job_id,
                 JobStatusEnum.PROCESSING,
                 progress=10,
-                message="Extracting presentation slides"
+                message="📊 Downloading and extracting slides from presentation"
             )
             
             slide_results = await self.presentation_service.extract_slides(
@@ -87,7 +87,7 @@ class VideoProcessorService:
                 job_id,
                 JobStatusEnum.PROCESSING,
                 progress=30,
-                message="Transcribing video"
+                message="🎤 Transcribing audio with GPT-4o (this may take a few minutes)"
             )
             
             options = job.metadata.get("options", {})
@@ -102,7 +102,7 @@ class VideoProcessorService:
                 job_id,
                 JobStatusEnum.PROCESSING,
                 progress=70,
-                message="Generating chapters"
+                message="🤖 Analyzing transcript and generating chapters with GPT-5"
             )
             
             chapters = await self.chapter_service.generate_chapters(
@@ -116,7 +116,7 @@ class VideoProcessorService:
                 job_id,
                 JobStatusEnum.PROCESSING,
                 progress=85,
-                message="Creating slides package"
+                message="📦 Packaging slides and generating output files"
             )
             
             has_qa = any(chapter.get('image_name') == 'qa' for chapter in chapters)
@@ -134,7 +134,7 @@ class VideoProcessorService:
                 job_id,
                 JobStatusEnum.PROCESSING,
                 progress=90,
-                message="Generating output files"
+                message="✍️ Creating CSV chapters, SRT subtitles, and final outputs"
             )
             
             output_files = await self._generate_outputs(
@@ -165,7 +165,7 @@ class VideoProcessorService:
                 job_id,
                 JobStatusEnum.COMPLETED,
                 progress=100,
-                message="Processing completed successfully"
+                message="✅ All done! Your chapters, subtitles, and slides are ready to download"
             )
             
             logger.info(f"Successfully completed processing for job {job_id}")
