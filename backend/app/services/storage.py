@@ -7,7 +7,6 @@ from typing import Tuple, Optional, BinaryIO
 from google.cloud import storage
 from google.cloud.storage import Blob
 import google.auth
-from google.auth import compute_engine, iam
 from google.auth.transport import requests as google_requests
 from datetime import datetime, timedelta
 import asyncio
@@ -15,9 +14,6 @@ import aiofiles
 from pathlib import Path
 import tempfile
 import uuid
-import base64
-import hashlib
-from urllib.parse import quote
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
@@ -31,25 +27,25 @@ class StorageService:
         self.upload_bucket = self.client.bucket(settings.GCS_UPLOAD_BUCKET)
         self.output_bucket = self.client.bucket(settings.GCS_OUTPUT_BUCKET)
         self._credentials = None
-        self._signer = None
         
-    async def _get_signer(self):
-        """Get IAM signer for Cloud Run"""
-        if self._signer is None:
+    async def _get_credentials_and_token(self):
+        """Get credentials and ensure fresh access token"""
+        if self._credentials is None:
             credentials, project = await asyncio.to_thread(google.auth.default)
+            self._credentials = credentials
             
-            # Create IAM signer using the service account email
-            if hasattr(credentials, 'service_account_email'):
-                service_account_email = credentials.service_account_email
-            else:
-                # Get compute service account email
-                service_account_email = f"{settings.GCP_PROJECT_ID}@appspot.gserviceaccount.com"
+        # Ensure credentials have a fresh token
+        request = google_requests.Request()
+        await asyncio.to_thread(self._credentials.refresh, request)
+        
+        # Get service account email
+        if hasattr(self._credentials, 'service_account_email'):
+            service_account_email = self._credentials.service_account_email
+        else:
+            # For compute engine credentials, get from metadata
+            service_account_email = f"{settings.GCP_PROJECT_ID}@appspot.gserviceaccount.com"
             
-            # Create request object for IAM signing
-            request = google_requests.Request()
-            self._signer = iam.Signer(request, credentials, service_account_email)
-            
-        return self._signer
+        return self._credentials.token, service_account_email
         
     async def generate_upload_url(
         self,
@@ -57,7 +53,7 @@ class StorageService:
         content_type: str
     ) -> Tuple[str, str]:
         """
-        Generate a signed URL for direct file upload using IAM API
+        Generate a signed URL for direct file upload using access token
         
         Args:
             filename: Original filename
@@ -75,17 +71,18 @@ class StorageService:
             # Create blob reference
             blob = self.upload_bucket.blob(file_path)
             
-            # Get IAM signer
-            signer = await self._get_signer()
+            # Get access token and service account email
+            access_token, service_account_email = await self._get_credentials_and_token()
                 
-            # Generate signed URL using IAM signer
+            # Generate signed URL using access token (Cloud Run compatible)
             url = await asyncio.to_thread(
                 blob.generate_signed_url,
                 version="v4",
                 expiration=timedelta(seconds=settings.SIGNED_URL_EXPIRY_SECONDS),
                 method="PUT",
                 content_type=content_type,
-                credentials=signer
+                service_account_email=service_account_email,
+                access_token=access_token
             )
             
             logger.info(f"Generated upload URL for {filename}")
@@ -101,7 +98,7 @@ class StorageService:
         expiration_seconds: int = 3600
     ) -> str:
         """
-        Generate a signed URL for file download using IAM API
+        Generate a signed URL for file download using access token
         
         Args:
             file_path: GCS path to file
@@ -119,8 +116,8 @@ class StorageService:
                 
             blob = bucket.blob(file_path)
             
-            # Get IAM signer
-            signer = await self._get_signer()
+            # Get access token and service account email
+            access_token, service_account_email = await self._get_credentials_and_token()
             
             # Generate signed URL for download
             url = await asyncio.to_thread(
@@ -128,7 +125,8 @@ class StorageService:
                 version="v4",
                 expiration=timedelta(seconds=expiration_seconds),
                 method="GET",
-                credentials=signer
+                service_account_email=service_account_email,
+                access_token=access_token
             )
             
             return url
