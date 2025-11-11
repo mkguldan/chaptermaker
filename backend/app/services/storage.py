@@ -6,6 +6,7 @@ import logging
 from typing import Tuple, Optional, BinaryIO
 from google.cloud import storage
 from google.cloud.storage import Blob
+import google.auth
 from google.auth import compute_engine
 from google.auth.transport import requests as google_requests
 from datetime import datetime, timedelta
@@ -56,17 +57,12 @@ class StorageService:
                 google.auth.default
             )
             
-            # Use IAM API for signing on Cloud Run
-            import google.auth
-            from google.auth import iam
-            from google.auth.transport import requests as google_requests
-            
             # Get signing credentials
             if hasattr(credentials, 'service_account_email'):
                 service_account_email = credentials.service_account_email
             else:
-                # On Cloud Run, get service account from metadata
-                service_account_email = f"{project}@appspot.gserviceaccount.com"
+                # On Cloud Run, get the default compute service account
+                service_account_email = f"{settings.GCP_PROJECT_ID}@appspot.gserviceaccount.com"
                 
             # Generate signed URL using IAM
             url = await asyncio.to_thread(
@@ -110,7 +106,6 @@ class StorageService:
             blob = bucket.blob(file_path)
             
             # Get service account for signing
-            import google.auth
             credentials, project = await asyncio.to_thread(
                 google.auth.default
             )
@@ -118,7 +113,7 @@ class StorageService:
             if hasattr(credentials, 'service_account_email'):
                 service_account_email = credentials.service_account_email
             else:
-                service_account_email = f"{project}@appspot.gserviceaccount.com"
+                service_account_email = f"{settings.GCP_PROJECT_ID}@appspot.gserviceaccount.com"
             
             # Generate signed URL for download
             url = await asyncio.to_thread(
