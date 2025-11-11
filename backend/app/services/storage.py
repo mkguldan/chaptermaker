@@ -7,7 +7,7 @@ from typing import Tuple, Optional, BinaryIO
 from google.cloud import storage
 from google.cloud.storage import Blob
 import google.auth
-from google.auth import compute_engine
+from google.auth import compute_engine, iam
 from google.auth.transport import requests as google_requests
 from datetime import datetime, timedelta
 import asyncio
@@ -15,6 +15,9 @@ import aiofiles
 from pathlib import Path
 import tempfile
 import uuid
+import base64
+import hashlib
+from urllib.parse import quote
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
@@ -27,6 +30,26 @@ class StorageService:
         self.client = storage.Client(project=settings.GCP_PROJECT_ID)
         self.upload_bucket = self.client.bucket(settings.GCS_UPLOAD_BUCKET)
         self.output_bucket = self.client.bucket(settings.GCS_OUTPUT_BUCKET)
+        self._credentials = None
+        self._signer = None
+        
+    async def _get_signer(self):
+        """Get IAM signer for Cloud Run"""
+        if self._signer is None:
+            credentials, project = await asyncio.to_thread(google.auth.default)
+            
+            # Create IAM signer using the service account email
+            if hasattr(credentials, 'service_account_email'):
+                service_account_email = credentials.service_account_email
+            else:
+                # Get compute service account email
+                service_account_email = f"{settings.GCP_PROJECT_ID}@appspot.gserviceaccount.com"
+            
+            # Create request object for IAM signing
+            request = google_requests.Request()
+            self._signer = iam.Signer(request, credentials, service_account_email)
+            
+        return self._signer
         
     async def generate_upload_url(
         self,
@@ -52,26 +75,17 @@ class StorageService:
             # Create blob reference
             blob = self.upload_bucket.blob(file_path)
             
-            # Get service account email for signing
-            credentials, project = await asyncio.to_thread(
-                google.auth.default
-            )
-            
-            # Get signing credentials
-            if hasattr(credentials, 'service_account_email'):
-                service_account_email = credentials.service_account_email
-            else:
-                # On Cloud Run, get the default compute service account
-                service_account_email = f"{settings.GCP_PROJECT_ID}@appspot.gserviceaccount.com"
+            # Get IAM signer
+            signer = await self._get_signer()
                 
-            # Generate signed URL using IAM
+            # Generate signed URL using IAM signer
             url = await asyncio.to_thread(
                 blob.generate_signed_url,
                 version="v4",
                 expiration=timedelta(seconds=settings.SIGNED_URL_EXPIRY_SECONDS),
                 method="PUT",
                 content_type=content_type,
-                service_account_email=service_account_email
+                credentials=signer
             )
             
             logger.info(f"Generated upload URL for {filename}")
@@ -105,15 +119,8 @@ class StorageService:
                 
             blob = bucket.blob(file_path)
             
-            # Get service account for signing
-            credentials, project = await asyncio.to_thread(
-                google.auth.default
-            )
-            
-            if hasattr(credentials, 'service_account_email'):
-                service_account_email = credentials.service_account_email
-            else:
-                service_account_email = f"{settings.GCP_PROJECT_ID}@appspot.gserviceaccount.com"
+            # Get IAM signer
+            signer = await self._get_signer()
             
             # Generate signed URL for download
             url = await asyncio.to_thread(
@@ -121,7 +128,7 @@ class StorageService:
                 version="v4",
                 expiration=timedelta(seconds=expiration_seconds),
                 method="GET",
-                service_account_email=service_account_email
+                credentials=signer
             )
             
             return url
