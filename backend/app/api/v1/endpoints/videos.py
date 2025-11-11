@@ -64,7 +64,8 @@ async def get_upload_url(
         return VideoUploadResponse(
             upload_url=upload_url,
             file_path=file_path,
-            expires_in=settings.SIGNED_URL_EXPIRY_SECONDS
+            expires_in=settings.SIGNED_URL_EXPIRY_SECONDS,
+            content_type=content_type
         )
         
     except Exception as e:

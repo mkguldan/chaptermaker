@@ -34,8 +34,12 @@ async def get_presentation_upload_url(
                 detail=f"Invalid file type. Allowed: {settings.ALLOWED_PRESENTATION_EXTENSIONS}"
             )
         
-        # Determine content type
-        content_type = "application/pdf" if filename.lower().endswith(".pdf") else "application/vnd.ms-powerpoint"
+        # Determine exact content type based on extension
+        import mimetypes
+        content_type, _ = mimetypes.guess_type(filename)
+        if not content_type:
+            # Fallback to generic types
+            content_type = "application/pdf" if filename.lower().endswith(".pdf") else "application/vnd.ms-powerpoint"
         
         # Generate signed URL
         upload_url, file_path = await storage_service.generate_upload_url(
@@ -46,7 +50,8 @@ async def get_presentation_upload_url(
         return PresentationUploadResponse(
             upload_url=upload_url,
             file_path=file_path,
-            expires_in=settings.SIGNED_URL_EXPIRY_SECONDS
+            expires_in=settings.SIGNED_URL_EXPIRY_SECONDS,
+            content_type=content_type
         )
         
     except Exception as e:

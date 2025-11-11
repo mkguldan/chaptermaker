@@ -45,7 +45,7 @@ export const VideoProvider = ({ children }) => {
   }, [])
 
   // Upload file to GCS using signed URL with progress tracking
-  const uploadToGCS = useCallback(async (file, uploadUrl, itemId) => {
+  const uploadToGCS = useCallback(async (file, uploadUrl, contentType, itemId) => {
     return new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest()
       
@@ -85,7 +85,7 @@ export const VideoProvider = ({ children }) => {
       
       const startTime = Date.now()
       xhr.open('PUT', uploadUrl, true)
-      xhr.setRequestHeader('Content-Type', file.type)
+      xhr.setRequestHeader('Content-Type', contentType)
       xhr.send(file)
     })
   }, [])
@@ -192,14 +192,14 @@ export const VideoProvider = ({ children }) => {
         
         // Upload video
         const videoUpload = await getUploadUrl(item.video.name)
-        await uploadToGCS(item.video, videoUpload.upload_url, `${item.id}-video`)
+        await uploadToGCS(item.video, videoUpload.upload_url, videoUpload.content_type, `${item.id}-video`)
         
         // Upload presentation
         setUploadQueue(prev => 
           prev.map(q => q.id === item.id ? { ...q, status: 'uploading_presentation' } : q)
         )
         const presentationUpload = await getPresentationUploadUrl(item.presentation.name)
-        await uploadToGCS(item.presentation, presentationUpload.upload_url, `${item.id}-presentation`)
+        await uploadToGCS(item.presentation, presentationUpload.upload_url, presentationUpload.content_type, `${item.id}-presentation`)
         
         // Process video
         setUploadQueue(prev => 
