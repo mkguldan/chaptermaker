@@ -56,20 +56,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Include API router
-app.include_router(api_router, prefix="/api/v1")
-
-
-@app.get("/")
-async def root():
-    """Root endpoint"""
-    return {
-        "message": "Video Chapter Maker API",
-        "version": "1.0.0",
-        "docs": "/api/docs",
-    }
-
-
+# Health check endpoint (before API router)
 @app.get("/health")
 async def health_check():
     """Health check endpoint for monitoring"""
@@ -79,18 +66,45 @@ async def health_check():
         "project": settings.GCP_PROJECT_ID,
     }
 
+# Include API router
+app.include_router(api_router, prefix="/api/v1")
 
 # Mount static files for frontend (if they exist)
 static_dir = Path(__file__).parent.parent / "static"
-if static_dir.exists():
-    app.mount("/assets", StaticFiles(directory=str(static_dir / "assets")), name="assets")
+logger.info(f"Checking for static directory at: {static_dir}")
+if static_dir.exists() and (static_dir / "index.html").exists():
+    logger.info("Static directory found, serving frontend")
     
-    @app.get("/{full_path:path}")
+    # Mount assets directory
+    assets_dir = static_dir / "assets"
+    if assets_dir.exists():
+        app.mount("/assets", StaticFiles(directory=str(assets_dir)), name="assets")
+    
+    # Catch-all route for SPA (must be last!)
+    @app.get("/{full_path:path}", include_in_schema=False)
     async def serve_spa(full_path: str):
         """Serve the React SPA for all non-API routes"""
+        # Skip API routes
+        if full_path.startswith("api/"):
+            return {"error": "Not found"}, 404
+            
         # Check if file exists in static directory
         file_path = static_dir / full_path
         if file_path.is_file():
             return FileResponse(file_path)
+        
         # Default to index.html for SPA routing
         return FileResponse(static_dir / "index.html")
+else:
+    logger.warning(f"Static directory not found at {static_dir}, serving API only")
+    
+    # Fallback root endpoint when no frontend
+    @app.get("/")
+    async def root():
+        """Root endpoint - API only mode"""
+        return {
+            "message": "Video Chapter Maker API",
+            "version": "1.0.0",
+            "docs": "/api/docs",
+            "note": "Frontend not available in this deployment"
+        }
