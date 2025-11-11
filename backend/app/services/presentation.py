@@ -172,8 +172,8 @@ class PresentationService:
                     zipf.write(slide['local_path'], slide['filename'])
                     logger.debug(f"Added {slide['filename']} to ZIP")
                 
-                # Add qa.jpg (only once)
-                qa_local_path = Path(__file__).parent.parent.parent / "qa.jpg"
+                # Add qa.jpg (only once) - it's in /app/qa.jpg in the container
+                qa_local_path = Path("/app/qa.jpg")
                 if qa_local_path.exists():
                     zipf.write(str(qa_local_path), "qa.jpg")
                     logger.info("Added qa.jpg to ZIP")

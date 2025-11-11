@@ -31,6 +31,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy backend code
 COPY backend/ .
 
+# Copy qa.jpg for Q&A chapters
+COPY qa.jpg ./qa.jpg
+
 # Copy frontend build from builder stage
 COPY --from=frontend-builder /frontend/dist ./static
 
