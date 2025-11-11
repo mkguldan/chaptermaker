@@ -18,7 +18,12 @@ class TranscriptionService:
     """Service for transcribing videos using OpenAI GPT-4o"""
     
     def __init__(self):
-        self.client = OpenAI(api_key=settings.OPENAI_API_KEY)
+        # Initialize OpenAI client with increased timeout for large files
+        self.client = OpenAI(
+            api_key=settings.OPENAI_API_KEY,
+            timeout=600.0,  # 10 minutes timeout for large audio files
+            max_retries=3
+        )
         self.storage_service = StorageService()
         
     async def transcribe_video(
@@ -114,9 +119,19 @@ class TranscriptionService:
         language: str = "en"
     ) -> Dict[str, Any]:
         """Transcribe audio file using OpenAI"""
+        # Check file size first (outside try block so we can use it in except)
+        file_size = Path(audio_path).stat().st_size
+        file_size_mb = file_size / (1024 * 1024)
+        logger.info(f"Audio file size: {file_size_mb:.2f} MB")
+        
+        # OpenAI has a 25MB limit for audio files
+        if file_size_mb > 25:
+            raise ValueError(f"Audio file is too large ({file_size_mb:.2f} MB). OpenAI API has a 25 MB limit. Please use a smaller file or compress the audio.")
+        
         try:
             # For GPT-4o transcription, we use the audio transcription endpoint
             with open(audio_path, "rb") as audio_file:
+                logger.info("Sending audio to OpenAI for transcription...")
                 # Using the transcriptions API with response format
                 transcription = await asyncio.to_thread(
                     self.client.audio.transcriptions.create,
@@ -127,10 +142,14 @@ class TranscriptionService:
                     timestamp_granularities=["segment", "word"]
                 )
             
+            logger.info("Transcription completed successfully")
             return transcription
             
         except Exception as e:
-            logger.error(f"Error in OpenAI transcription: {str(e)}")
+            logger.error(f"Error in OpenAI transcription: {str(e)}", exc_info=True)
+            # Provide more helpful error message
+            if "Connection error" in str(e) or "timeout" in str(e).lower():
+                raise Exception(f"OpenAI API connection timeout. The audio file ({file_size_mb:.2f} MB) may be too large or there may be network issues. Please try again or use a smaller/compressed audio file.")
             raise
             
     def _parse_transcription(self, transcription: Any) -> Dict[str, Any]:
