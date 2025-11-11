@@ -38,4 +38,4 @@ black==25.1.0
 ruff==0.9.2
 
 # Monitoring
-prometheus-client==0.22.2
+prometheus-client==0.21.1
