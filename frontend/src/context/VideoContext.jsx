@@ -99,8 +99,18 @@ export const VideoProvider = ({ children }) => {
         options
       })
       
-      const newJob = response.data
-      setJobs(prev => [newJob, ...prev])
+      // Add video_path and presentation_path to the job for display
+      const newJob = {
+        ...response.data,
+        video_path: videoPath,
+        presentation_path: presentationPath
+      }
+      console.log('Adding new job to state:', newJob)
+      setJobs(prev => {
+        const updated = [newJob, ...prev]
+        console.log('Updated jobs state:', updated)
+        return updated
+      })
       
       return newJob
     } catch (error) {

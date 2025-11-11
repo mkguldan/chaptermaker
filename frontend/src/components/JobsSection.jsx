@@ -96,12 +96,15 @@ const JobsSection = () => {
   }
 
   const getVideoName = (path) => {
+    if (!path) return 'Unknown'
     return path.split('/').pop()
   }
 
   if (localJobs.length === 0) {
     return null
   }
+  
+  console.log('Rendering jobs:', localJobs)
 
   return (
     <div className="space-y-4">
@@ -120,14 +123,16 @@ const JobsSection = () => {
                 {getStatusIcon(job.status)}
                 <div>
                   <h4 className="text-base font-medium text-gray-100">
-                    {getVideoName(job.video_path)}
+                    {getVideoName(job.video_path || job.presentation_path)}
                   </h4>
                   <p className="text-xs text-gray-500 mt-1">
-                    Job ID: {job.job_id}
+                    Job ID: {job.job_id || 'N/A'}
                   </p>
-                  <p className="text-xs text-gray-500">
-                    Created: {formatDate(job.created_at)}
-                  </p>
+                  {job.created_at && (
+                    <p className="text-xs text-gray-500">
+                      Created: {formatDate(job.created_at)}
+                    </p>
+                  )}
                 </div>
               </div>
               
