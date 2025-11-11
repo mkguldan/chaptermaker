@@ -4,7 +4,7 @@ Application configuration using Pydantic settings
 
 from typing import List, Optional
 from pydantic_settings import BaseSettings
-from pydantic import Field
+from pydantic import Field, field_validator
 import os
 
 
@@ -23,6 +23,14 @@ class Settings(BaseSettings):
     
     # OpenAI
     OPENAI_API_KEY: str = Field(..., env="OPENAI_API_KEY")
+    
+    @field_validator('OPENAI_API_KEY')
+    @classmethod
+    def strip_api_key(cls, v: str) -> str:
+        """Strip whitespace from API key to prevent header errors"""
+        if v:
+            return v.strip()
+        return v
     GPT5_MODEL: str = "gpt-5-2025-08-07"
     GPT4O_MODEL: str = "gpt-4o"
     
