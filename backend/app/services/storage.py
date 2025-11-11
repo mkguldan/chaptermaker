@@ -6,6 +6,8 @@ import logging
 from typing import Tuple, Optional, BinaryIO
 from google.cloud import storage
 from google.cloud.storage import Blob
+from google.auth import compute_engine
+from google.auth.transport import requests as google_requests
 from datetime import datetime, timedelta
 import asyncio
 import aiofiles
@@ -31,7 +33,7 @@ class StorageService:
         content_type: str
     ) -> Tuple[str, str]:
         """
-        Generate a signed URL for direct file upload
+        Generate a signed URL for direct file upload using IAM API
         
         Args:
             filename: Original filename
@@ -49,13 +51,31 @@ class StorageService:
             # Create blob reference
             blob = self.upload_bucket.blob(file_path)
             
-            # Generate signed URL for upload
+            # Get service account email for signing
+            credentials, project = await asyncio.to_thread(
+                google.auth.default
+            )
+            
+            # Use IAM API for signing on Cloud Run
+            import google.auth
+            from google.auth import iam
+            from google.auth.transport import requests as google_requests
+            
+            # Get signing credentials
+            if hasattr(credentials, 'service_account_email'):
+                service_account_email = credentials.service_account_email
+            else:
+                # On Cloud Run, get service account from metadata
+                service_account_email = f"{project}@appspot.gserviceaccount.com"
+                
+            # Generate signed URL using IAM
             url = await asyncio.to_thread(
                 blob.generate_signed_url,
                 version="v4",
                 expiration=timedelta(seconds=settings.SIGNED_URL_EXPIRY_SECONDS),
                 method="PUT",
-                content_type=content_type
+                content_type=content_type,
+                service_account_email=service_account_email
             )
             
             logger.info(f"Generated upload URL for {filename}")
@@ -71,7 +91,7 @@ class StorageService:
         expiration_seconds: int = 3600
     ) -> str:
         """
-        Generate a signed URL for file download
+        Generate a signed URL for file download using IAM API
         
         Args:
             file_path: GCS path to file
@@ -89,12 +109,24 @@ class StorageService:
                 
             blob = bucket.blob(file_path)
             
+            # Get service account for signing
+            import google.auth
+            credentials, project = await asyncio.to_thread(
+                google.auth.default
+            )
+            
+            if hasattr(credentials, 'service_account_email'):
+                service_account_email = credentials.service_account_email
+            else:
+                service_account_email = f"{project}@appspot.gserviceaccount.com"
+            
             # Generate signed URL for download
             url = await asyncio.to_thread(
                 blob.generate_signed_url,
                 version="v4",
                 expiration=timedelta(seconds=expiration_seconds),
-                method="GET"
+                method="GET",
+                service_account_email=service_account_email
             )
             
             return url
