@@ -4,15 +4,16 @@ An AI-powered application that processes video presentations to automatically ge
 
 ## Features
 
-- **Automatic Video Transcription**: Uses OpenAI GPT-4o-transcribe for accurate transcription
+- **Audio & Video Support**: Upload audio files (MP3, WAV, M4A, etc.) or videos - audio files are faster!
+- **Automatic Transcription**: Uses OpenAI GPT-4o-transcribe for accurate transcription
 - **Smart Chapter Generation**: Uses GPT-5 (gpt-5-2025-08-07) to create meaningful chapters
 - **Presentation Slide Extraction**: Extracts slides from PowerPoint or PDF presentations
 - **Q&A Detection**: Automatically identifies Q&A sections and applies appropriate images
 - **Subtitle Generation**: Creates .srt subtitle files
-- **Batch Processing**: Process multiple videos simultaneously
+- **Batch Processing**: Process multiple files simultaneously
 - **Web Interface**: Elegant UI built with React and Tailwind CSS
 - **CLI Tool**: Optional command-line interface for local batch processing
-- **Direct Cloud Upload**: Uses GCS signed URLs for efficient large file uploads
+- **Direct Cloud Upload**: Uses GCS signed URLs for efficient file uploads
 
 ## Project Structure
 

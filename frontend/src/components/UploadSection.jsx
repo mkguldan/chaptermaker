@@ -11,13 +11,15 @@ const UploadSection = () => {
 
   const videoDropzone = useDropzone({
     accept: {
-      'video/*': ['.mp4', '.avi', '.mov', '.mkv', '.webm']
+      'video/*': ['.mp4', '.avi', '.mov', '.mkv', '.webm'],
+      'audio/*': ['.mp3', '.wav', '.m4a', '.aac', '.ogg', '.flac', '.wma']
     },
     maxFiles: 1,
     onDrop: (acceptedFiles) => {
       if (acceptedFiles.length > 0) {
         setCurrentPair(prev => ({ ...prev, video: acceptedFiles[0] }))
-        toast.success('Video selected')
+        const fileType = acceptedFiles[0].type.startsWith('audio/') ? 'Audio' : 'Video'
+        toast.success(`${fileType} file selected`)
       }
     }
   })
@@ -69,11 +71,11 @@ const UploadSection = () => {
     <div className="space-y-8">
       {/* Upload Area */}
       <div className="grid md:grid-cols-2 gap-6">
-        {/* Video Upload */}
+        {/* Video/Audio Upload */}
         <div className="card p-6">
           <h3 className="text-lg font-medium text-gray-900 mb-4 flex items-center">
             <FilmIcon className="h-5 w-5 mr-2 text-primary-600" />
-            Video File
+            Video or Audio File
           </h3>
           
           <div
@@ -97,10 +99,13 @@ const UploadSection = () => {
               <div className="space-y-2">
                 <CloudArrowUpIcon className="h-12 w-12 mx-auto text-gray-400" />
                 <p className="text-sm text-gray-600">
-                  Drag & drop your video here, or click to select
+                  Drag & drop your video or audio here, or click to select
                 </p>
                 <p className="text-xs text-gray-500">
-                  Supported: MP4, AVI, MOV, MKV, WebM
+                  Video: MP4, AVI, MOV, MKV, WebM
+                </p>
+                <p className="text-xs text-gray-500">
+                  Audio: MP3, WAV, M4A, AAC, OGG, FLAC
                 </p>
               </div>
             )}
@@ -111,7 +116,7 @@ const UploadSection = () => {
               onClick={() => setCurrentPair(prev => ({ ...prev, video: null }))}
               className="mt-2 text-sm text-red-600 hover:text-red-700"
             >
-              Remove video
+              Remove file
             </button>
           )}
         </div>

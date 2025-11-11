@@ -52,8 +52,10 @@ class Settings(BaseSettings):
     
     # File processing limits
     MAX_VIDEO_SIZE_MB: int = 5000  # 5GB
+    MAX_AUDIO_SIZE_MB: int = 500  # 500MB
     MAX_PRESENTATION_SIZE_MB: int = 100
     ALLOWED_VIDEO_EXTENSIONS: List[str] = [".mp4", ".avi", ".mov", ".mkv", ".webm"]
+    ALLOWED_AUDIO_EXTENSIONS: List[str] = [".mp3", ".wav", ".m4a", ".aac", ".ogg", ".flac", ".wma"]
     ALLOWED_PRESENTATION_EXTENSIONS: List[str] = [".pptx", ".ppt", ".pdf"]
     
     # Processing settings

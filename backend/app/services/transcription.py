@@ -28,10 +28,10 @@ class TranscriptionService:
         job_id: str = None
     ) -> Dict[str, Any]:
         """
-        Transcribe video using OpenAI GPT-4o
+        Transcribe video or audio file using OpenAI GPT-4o
         
         Args:
-            video_path: GCS path to video file
+            video_path: GCS path to video or audio file
             language: Language code for transcription
             job_id: Job ID for progress tracking
             
@@ -39,17 +39,28 @@ class TranscriptionService:
             Transcription result with text and timestamps
         """
         try:
-            logger.info(f"Starting transcription for video: {video_path}")
+            logger.info(f"Starting transcription for: {video_path}")
             
-            # Download video from GCS to temporary file
-            local_video_path = await self.storage_service.download_to_temp(video_path)
+            # Download file from GCS to temporary location
+            local_file_path = await self.storage_service.download_to_temp(video_path)
             
             try:
-                # Extract audio from video
-                audio_path = await self._extract_audio(local_video_path)
+                # Check if it's an audio file (skip extraction) or video file (extract audio)
+                file_ext = Path(local_file_path).suffix.lower()
+                audio_extensions = ['.mp3', '.wav', '.m4a', '.aac', '.ogg', '.flac', '.wma']
+                
+                if file_ext in audio_extensions:
+                    # Already audio - use directly
+                    logger.info("Audio file detected, using directly")
+                    audio_path = local_file_path
+                    should_delete_audio = False
+                else:
+                    # Video file - extract audio
+                    logger.info("Video file detected, extracting audio")
+                    audio_path = await self._extract_audio(local_file_path)
+                    should_delete_audio = True
                 
                 # Transcribe using OpenAI Whisper (GPT-4o-based)
-                # For large files, we'll chunk the audio
                 transcription = await self._transcribe_audio(
                     audio_path,
                     language=language
@@ -71,13 +82,13 @@ class TranscriptionService:
                 
             finally:
                 # Clean up temporary files
-                if Path(local_video_path).exists():
-                    Path(local_video_path).unlink()
-                if 'audio_path' in locals() and Path(audio_path).exists():
+                if Path(local_file_path).exists():
+                    Path(local_file_path).unlink()
+                if should_delete_audio and 'audio_path' in locals() and Path(audio_path).exists() and audio_path != local_file_path:
                     Path(audio_path).unlink()
                     
         except Exception as e:
-            logger.error(f"Error transcribing video: {str(e)}")
+            logger.error(f"Error transcribing: {str(e)}")
             raise
             
     async def _extract_audio(self, video_path: str) -> str:

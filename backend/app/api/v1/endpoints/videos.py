@@ -25,26 +25,32 @@ async def get_upload_url(
     storage_service: StorageService = Depends()
 ) -> VideoUploadResponse:
     """
-    Get a signed URL for direct video upload to GCS
+    Get a signed URL for direct video or audio upload to GCS
     
     Args:
-        filename: Name of the video file
+        filename: Name of the video or audio file
         
     Returns:
         Signed upload URL and file metadata
     """
     try:
-        # Validate file extension
-        if not any(filename.lower().endswith(ext) for ext in settings.ALLOWED_VIDEO_EXTENSIONS):
+        # Validate file extension (video or audio)
+        is_video = any(filename.lower().endswith(ext) for ext in settings.ALLOWED_VIDEO_EXTENSIONS)
+        is_audio = any(filename.lower().endswith(ext) for ext in settings.ALLOWED_AUDIO_EXTENSIONS)
+        
+        if not is_video and not is_audio:
             raise HTTPException(
                 status_code=400,
-                detail=f"Invalid file type. Allowed: {settings.ALLOWED_VIDEO_EXTENSIONS}"
+                detail=f"Invalid file type. Allowed video: {settings.ALLOWED_VIDEO_EXTENSIONS}, audio: {settings.ALLOWED_AUDIO_EXTENSIONS}"
             )
+        
+        # Determine content type
+        content_type = "audio/*" if is_audio else "video/*"
         
         # Generate signed URL
         upload_url, file_path = await storage_service.generate_upload_url(
             filename=filename,
-            content_type="video/*"
+            content_type=content_type
         )
         
         return VideoUploadResponse(
