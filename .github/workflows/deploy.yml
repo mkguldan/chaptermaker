@@ -1,0 +1,161 @@
+name: Deploy to Cloud Run
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+env:
+  PROJECT_ID: ai-mvp-452812
+  REGION: us-central1
+  BACKEND_SERVICE: chaptermaker-api
+  FRONTEND_SERVICE: chaptermaker-web
+  ARTIFACT_REGISTRY: us-central1-docker.pkg.dev
+
+jobs:
+  deploy-backend:
+    name: Deploy Backend
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Google Cloud SDK
+      uses: google-github-actions/setup-gcloud@v2
+      with:
+        service_account_key: ${{ secrets.GCP_SERVICE_ACCOUNT_KEY }}
+        project_id: ${{ env.PROJECT_ID }}
+
+    - name: Configure Docker for Artifact Registry
+      run: |
+        gcloud auth configure-docker ${{ env.ARTIFACT_REGISTRY }}
+
+    - name: Build Backend Docker Image
+      run: |
+        docker build -t ${{ env.ARTIFACT_REGISTRY }}/${{ env.PROJECT_ID }}/chaptermaker-repo/backend:${{ github.sha }} \
+          -t ${{ env.ARTIFACT_REGISTRY }}/${{ env.PROJECT_ID }}/chaptermaker-repo/backend:latest \
+          ./backend
+
+    - name: Push Backend Docker Image
+      run: |
+        docker push ${{ env.ARTIFACT_REGISTRY }}/${{ env.PROJECT_ID }}/chaptermaker-repo/backend:${{ github.sha }}
+        docker push ${{ env.ARTIFACT_REGISTRY }}/${{ env.PROJECT_ID }}/chaptermaker-repo/backend:latest
+
+    - name: Deploy Backend to Cloud Run
+      run: |
+        gcloud run deploy ${{ env.BACKEND_SERVICE }} \
+          --image ${{ env.ARTIFACT_REGISTRY }}/${{ env.PROJECT_ID }}/chaptermaker-repo/backend:${{ github.sha }} \
+          --region ${{ env.REGION }} \
+          --platform managed \
+          --allow-unauthenticated \
+          --set-env-vars "APP_ENV=production" \
+          --set-env-vars "GCP_PROJECT_ID=${{ env.PROJECT_ID }}" \
+          --set-env-vars "GCS_UPLOAD_BUCKET=chaptermaker-uploads-${{ env.PROJECT_ID }}" \
+          --set-env-vars "GCS_OUTPUT_BUCKET=chaptermaker-outputs-${{ env.PROJECT_ID }}" \
+          --set-env-vars "CLOUD_TASKS_QUEUE=video-processing" \
+          --set-env-vars "CLOUD_TASKS_LOCATION=${{ env.REGION }}" \
+          --set-secrets "OPENAI_API_KEY=OPENAI_API_KEY:latest" \
+          --memory 2Gi \
+          --cpu 2 \
+          --timeout 900 \
+          --concurrency 100 \
+          --max-instances 10
+
+  deploy-frontend:
+    name: Deploy Frontend
+    runs-on: ubuntu-latest
+    needs: deploy-backend
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Google Cloud SDK
+      uses: google-github-actions/setup-gcloud@v2
+      with:
+        service_account_key: ${{ secrets.GCP_SERVICE_ACCOUNT_KEY }}
+        project_id: ${{ env.PROJECT_ID }}
+
+    - name: Configure Docker for Artifact Registry
+      run: |
+        gcloud auth configure-docker ${{ env.ARTIFACT_REGISTRY }}
+
+    - name: Get Backend URL
+      id: backend-url
+      run: |
+        BACKEND_URL=$(gcloud run services describe ${{ env.BACKEND_SERVICE }} \
+          --region ${{ env.REGION }} \
+          --format 'value(status.url)')
+        echo "backend_url=$BACKEND_URL" >> $GITHUB_OUTPUT
+
+    - name: Build Frontend Docker Image
+      run: |
+        docker build -t ${{ env.ARTIFACT_REGISTRY }}/${{ env.PROJECT_ID }}/chaptermaker-repo/frontend:${{ github.sha }} \
+          -t ${{ env.ARTIFACT_REGISTRY }}/${{ env.PROJECT_ID }}/chaptermaker-repo/frontend:latest \
+          --build-arg VITE_API_URL=${{ steps.backend-url.outputs.backend_url }}/api/v1 \
+          ./frontend
+
+    - name: Push Frontend Docker Image
+      run: |
+        docker push ${{ env.ARTIFACT_REGISTRY }}/${{ env.PROJECT_ID }}/chaptermaker-repo/frontend:${{ github.sha }}
+        docker push ${{ env.ARTIFACT_REGISTRY }}/${{ env.PROJECT_ID }}/chaptermaker-repo/frontend:latest
+
+    - name: Deploy Frontend to Cloud Run
+      run: |
+        gcloud run deploy ${{ env.FRONTEND_SERVICE }} \
+          --image ${{ env.ARTIFACT_REGISTRY }}/${{ env.PROJECT_ID }}/chaptermaker-repo/frontend:${{ github.sha }} \
+          --region ${{ env.REGION }} \
+          --platform managed \
+          --allow-unauthenticated \
+          --memory 512Mi \
+          --cpu 1 \
+          --concurrency 1000 \
+          --max-instances 10
+
+    - name: Get Service URLs
+      run: |
+        BACKEND_URL=$(gcloud run services describe ${{ env.BACKEND_SERVICE }} \
+          --region ${{ env.REGION }} \
+          --format 'value(status.url)')
+        FRONTEND_URL=$(gcloud run services describe ${{ env.FRONTEND_SERVICE }} \
+          --region ${{ env.REGION }} \
+          --format 'value(status.url)')
+        
+        echo "## Deployment Complete! 🚀" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Service URLs:" >> $GITHUB_STEP_SUMMARY
+        echo "- **Frontend:** $FRONTEND_URL" >> $GITHUB_STEP_SUMMARY
+        echo "- **Backend API:** $BACKEND_URL" >> $GITHUB_STEP_SUMMARY
+        echo "- **API Documentation:** $BACKEND_URL/api/docs" >> $GITHUB_STEP_SUMMARY
+
+  setup-cloud-storage:
+    name: Setup Cloud Storage
+    runs-on: ubuntu-latest
+    needs: deploy-backend
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Google Cloud SDK
+      uses: google-github-actions/setup-gcloud@v2
+      with:
+        service_account_key: ${{ secrets.GCP_SERVICE_ACCOUNT_KEY }}
+        project_id: ${{ env.PROJECT_ID }}
+
+    - name: Upload Static Files
+      run: |
+        # Upload Q&A image to static folder
+        gsutil cp qa.jpg gs://chaptermaker-uploads-${{ env.PROJECT_ID }}/static/qa.jpg
+        
+        # Set public read access for static files
+        gsutil acl ch -u AllUsers:R gs://chaptermaker-uploads-${{ env.PROJECT_ID }}/static/qa.jpg
+
+    - name: Set CORS Policy
+      run: |
+        echo '[{"origin": ["*"], "method": ["GET", "PUT", "POST", "DELETE"], "responseHeader": ["*"], "maxAgeSeconds": 3600}]' > cors.json
+        gsutil cors set cors.json gs://chaptermaker-uploads-${{ env.PROJECT_ID }}
+        gsutil cors set cors.json gs://chaptermaker-outputs-${{ env.PROJECT_ID }}
+        rm cors.json
