@@ -33,6 +33,7 @@ class StorageService:
         if self._credentials is None:
             credentials, project = await asyncio.to_thread(google.auth.default)
             self._credentials = credentials
+            logger.info(f"Initialized credentials type: {type(self._credentials).__name__}")
             
         # Ensure credentials have a fresh token
         request = google_requests.Request()
@@ -41,11 +42,20 @@ class StorageService:
         # Get service account email
         if hasattr(self._credentials, 'service_account_email'):
             service_account_email = self._credentials.service_account_email
+            logger.info(f"Using service account email from credentials: {service_account_email}")
         else:
             # For compute engine credentials, get from metadata
             service_account_email = f"{settings.GCP_PROJECT_ID}@appspot.gserviceaccount.com"
+            logger.warning(f"Service account email not in credentials, using computed: {service_account_email}")
             
-        return self._credentials.token, service_account_email
+        # Log token info (safely)
+        token = self._credentials.token
+        if token:
+            logger.info(f"Access token available: {token[:20]}...{token[-20:] if len(token) > 40 else ''}")
+        else:
+            logger.error("No access token available!")
+            
+        return token, service_account_email
         
     async def generate_upload_url(
         self,
@@ -68,11 +78,24 @@ class StorageService:
             unique_id = str(uuid.uuid4())[:8]
             file_path = f"uploads/{timestamp}/{unique_id}/{filename}"
             
+            logger.info(f"Generating upload URL for: {filename}")
+            logger.info(f"Bucket: {self.upload_bucket.name}")
+            logger.info(f"File path: {file_path}")
+            logger.info(f"Content type: {content_type}")
+            
             # Create blob reference
             blob = self.upload_bucket.blob(file_path)
             
             # Get access token and service account email
             access_token, service_account_email = await self._get_credentials_and_token()
+            
+            logger.info(f"Calling generate_signed_url with:")
+            logger.info(f"  - version: v4")
+            logger.info(f"  - expiration: {settings.SIGNED_URL_EXPIRY_SECONDS}s")
+            logger.info(f"  - method: PUT")
+            logger.info(f"  - content_type: {content_type}")
+            logger.info(f"  - service_account_email: {service_account_email}")
+            logger.info(f"  - access_token: {'present' if access_token else 'missing'}")
                 
             # Generate signed URL using access token (Cloud Run compatible)
             url = await asyncio.to_thread(
@@ -85,11 +108,12 @@ class StorageService:
                 access_token=access_token
             )
             
-            logger.info(f"Generated upload URL for {filename}")
+            logger.info(f"Successfully generated upload URL for {filename}")
+            logger.info(f"URL starts with: {url[:100]}...")
             return url, file_path
             
         except Exception as e:
-            logger.error(f"Error generating upload URL: {str(e)}")
+            logger.error(f"Error generating upload URL: {str(e)}", exc_info=True)
             raise
             
     async def generate_download_url(

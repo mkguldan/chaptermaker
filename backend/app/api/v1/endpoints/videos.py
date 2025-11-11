@@ -34,11 +34,14 @@ async def get_upload_url(
         Signed upload URL and file metadata
     """
     try:
+        logger.info(f"Upload URL request received for: {filename}")
+        
         # Validate file extension (video or audio)
         is_video = any(filename.lower().endswith(ext) for ext in settings.ALLOWED_VIDEO_EXTENSIONS)
         is_audio = any(filename.lower().endswith(ext) for ext in settings.ALLOWED_AUDIO_EXTENSIONS)
         
         if not is_video and not is_audio:
+            logger.warning(f"Invalid file type for: {filename}")
             raise HTTPException(
                 status_code=400,
                 detail=f"Invalid file type. Allowed video: {settings.ALLOWED_VIDEO_EXTENSIONS}, audio: {settings.ALLOWED_AUDIO_EXTENSIONS}"
@@ -46,6 +49,7 @@ async def get_upload_url(
         
         # Determine content type
         content_type = "audio/*" if is_audio else "video/*"
+        logger.info(f"File type: {'audio' if is_audio else 'video'}, content_type: {content_type}")
         
         # Generate signed URL
         upload_url, file_path = await storage_service.generate_upload_url(
