@@ -15,7 +15,6 @@ import toast from 'react-hot-toast'
 const JobsSection = () => {
   const { jobs, getJobStatus, getJobResults, pollJobStatus } = useVideo()
   const [localJobs, setLocalJobs] = useState([])
-  const [expandedJob, setExpandedJob] = useState(null)
 
   useEffect(() => {
     // Initialize local jobs from context
@@ -42,19 +41,18 @@ const JobsSection = () => {
     }
   }, [localJobs, pollJobStatus])
 
-  const handleDownloadResults = async (jobId) => {
+  const handleDownload = async (jobId, fileType) => {
     try {
       const results = await getJobResults(jobId)
       
-      // Open download links in new tabs
-      if (results.download_urls) {
-        Object.entries(results.download_urls).forEach(([key, url]) => {
-          window.open(url, '_blank')
-        })
-        toast.success('Downloads started')
+      if (results.download_urls && results.download_urls[fileType]) {
+        window.open(results.download_urls[fileType], '_blank')
+        toast.success(`Downloading ${fileType}`)
+      } else {
+        toast.error(`${fileType} not available`)
       }
     } catch (error) {
-      toast.error('Failed to get download links')
+      toast.error(`Failed to download ${fileType}`)
     }
   }
 
@@ -78,17 +76,17 @@ const JobsSection = () => {
   const getStatusColor = (status) => {
     switch (status) {
       case 'completed':
-        return 'bg-green-100 text-green-800'
+        return 'bg-green-500/20 text-green-400'
       case 'failed':
-        return 'bg-red-100 text-red-800'
+        return 'bg-red-500/20 text-red-400'
       case 'processing':
-        return 'bg-blue-100 text-blue-800'
+        return 'bg-blue-500/20 text-blue-400'
       case 'pending':
-        return 'bg-gray-100 text-gray-800'
+        return 'bg-gray-500/20 text-gray-400'
       case 'cancelled':
-        return 'bg-yellow-100 text-yellow-800'
+        return 'bg-yellow-500/20 text-yellow-400'
       default:
-        return 'bg-gray-100 text-gray-800'
+        return 'bg-gray-500/20 text-gray-400'
     }
   }
 
@@ -102,32 +100,26 @@ const JobsSection = () => {
   }
 
   if (localJobs.length === 0) {
-    return (
-      <div className="text-center py-12">
-        <FilmIcon className="h-12 w-12 mx-auto text-gray-400 mb-4" />
-        <h3 className="text-lg font-medium text-gray-900 mb-2">No processing jobs yet</h3>
-        <p className="text-gray-500">Upload videos to start processing</p>
-      </div>
-    )
+    return null
   }
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between mb-4">
-        <h2 className="text-lg font-medium text-gray-900">Processing Jobs</h2>
-        <div className="text-sm text-gray-500">
-          {localJobs.filter(j => j.status === 'processing').length} active jobs
+        <h2 className="text-xl font-semibold text-gray-100">Processing Jobs</h2>
+        <div className="text-sm text-gray-400">
+          {localJobs.filter(j => j.status === 'processing').length} active • {localJobs.filter(j => j.status === 'completed').length} completed
         </div>
       </div>
 
       {localJobs.map((job) => (
         <div key={job.job_id} className="card">
-          <div className="p-4">
+          <div className="p-6">
             <div className="flex items-start justify-between">
               <div className="flex items-start space-x-3">
                 {getStatusIcon(job.status)}
                 <div>
-                  <h4 className="text-sm font-medium text-gray-900">
+                  <h4 className="text-base font-medium text-gray-100">
                     {getVideoName(job.video_path)}
                   </h4>
                   <p className="text-xs text-gray-500 mt-1">
@@ -139,36 +131,24 @@ const JobsSection = () => {
                 </div>
               </div>
               
-              <div className="flex items-center space-x-2">
-                <span className={clsx(
-                  'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium',
-                  getStatusColor(job.status)
-                )}>
-                  {job.status}
-                </span>
-                
-                {job.status === 'completed' && (
-                  <button
-                    onClick={() => handleDownloadResults(job.job_id)}
-                    className="p-1 text-gray-400 hover:text-gray-500"
-                    title="Download results"
-                  >
-                    <ArrowDownTrayIcon className="h-5 w-5" />
-                  </button>
-                )}
-              </div>
+              <span className={clsx(
+                'inline-flex items-center px-3 py-1 rounded-full text-xs font-medium',
+                getStatusColor(job.status)
+              )}>
+                {job.status}
+              </span>
             </div>
 
             {/* Progress Bar */}
             {job.status === 'processing' && job.progress !== undefined && (
               <div className="mt-4">
-                <div className="flex items-center justify-between text-xs text-gray-500 mb-1">
+                <div className="flex items-center justify-between text-xs text-gray-400 mb-2">
                   <span>{job.message || 'Processing...'}</span>
                   <span>{job.progress}%</span>
                 </div>
-                <div className="w-full bg-gray-200 rounded-full h-2">
+                <div className="w-full bg-gray-700 rounded-full h-2">
                   <div 
-                    className="bg-primary-600 h-2 rounded-full transition-all duration-500"
+                    className="bg-blue-500 h-2 rounded-full transition-all duration-500"
                     style={{ width: `${job.progress}%` }}
                   />
                 </div>
@@ -177,87 +157,43 @@ const JobsSection = () => {
 
             {/* Error Message */}
             {job.error && (
-              <div className="mt-3 p-3 bg-red-50 rounded-md">
-                <p className="text-sm text-red-800">{job.error}</p>
+              <div className="mt-4 p-3 bg-red-500/10 border border-red-500/20 rounded-md">
+                <p className="text-sm text-red-400">{job.error}</p>
               </div>
             )}
-
-            {/* Expandable Details */}
+            
+            {/* Download Buttons */}
             {job.status === 'completed' && (
-              <button
-                onClick={() => setExpandedJob(expandedJob === job.job_id ? null : job.job_id)}
-                className="mt-3 text-sm text-primary-600 hover:text-primary-700"
-              >
-                {expandedJob === job.job_id ? 'Hide details' : 'Show details'}
-              </button>
-            )}
-
-            {expandedJob === job.job_id && (
-              <div className="mt-4 pt-4 border-t border-gray-200">
-                <dl className="grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2">
-                  <div>
-                    <dt className="text-xs font-medium text-gray-500">Video</dt>
-                    <dd className="mt-1 text-sm text-gray-900">{getVideoName(job.video_path)}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-xs font-medium text-gray-500">Presentation</dt>
-                    <dd className="mt-1 text-sm text-gray-900">{getVideoName(job.presentation_path)}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-xs font-medium text-gray-500">Started</dt>
-                    <dd className="mt-1 text-sm text-gray-900">{formatDate(job.created_at)}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-xs font-medium text-gray-500">Completed</dt>
-                    <dd className="mt-1 text-sm text-gray-900">
-                      {job.completed_at ? formatDate(job.completed_at) : '-'}
-                    </dd>
-                  </div>
-                </dl>
-
-                {job.metadata?.statistics && (
-                  <div className="mt-4">
-                    <h5 className="text-xs font-medium text-gray-500 mb-2">Statistics</h5>
-                    <dl className="grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-4">
-                      <div>
-                        <dt className="text-xs text-gray-500">Duration</dt>
-                        <dd className="text-sm font-medium text-gray-900">
-                          {Math.round(job.metadata.statistics.duration_seconds / 60)} min
-                        </dd>
-                      </div>
-                      <div>
-                        <dt className="text-xs text-gray-500">Chapters</dt>
-                        <dd className="text-sm font-medium text-gray-900">
-                          {job.metadata.statistics.chapters_count}
-                        </dd>
-                      </div>
-                      <div>
-                        <dt className="text-xs text-gray-500">Slides</dt>
-                        <dd className="text-sm font-medium text-gray-900">
-                          {job.metadata.statistics.slides_extracted}
-                        </dd>
-                      </div>
-                      <div>
-                        <dt className="text-xs text-gray-500">Language</dt>
-                        <dd className="text-sm font-medium text-gray-900 uppercase">
-                          {job.metadata.statistics.language}
-                        </dd>
-                      </div>
-                    </dl>
-                  </div>
-                )}
-
-                <div className="mt-4 flex flex-wrap gap-2">
+              <div className="mt-4 pt-4 border-t border-gray-700">
+                <p className="text-sm text-gray-400 mb-3">Download Results:</p>
+                <div className="flex flex-wrap gap-2">
                   <button
-                    onClick={() => handleDownloadResults(job.job_id)}
-                    className="btn-primary text-sm"
+                    onClick={() => handleDownload(job.job_id, 'chapters_csv')}
+                    className="inline-flex items-center px-4 py-2 bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 rounded-md text-sm font-medium transition-colors"
                   >
-                    <ArrowDownTrayIcon className="h-4 w-4 mr-1" />
-                    Download All Results
+                    <ArrowDownTrayIcon className="h-4 w-4 mr-2" />
+                    Chapters CSV
+                  </button>
+                  
+                  <button
+                    onClick={() => handleDownload(job.job_id, 'subtitles_srt')}
+                    className="inline-flex items-center px-4 py-2 bg-green-500/20 hover:bg-green-500/30 text-green-400 rounded-md text-sm font-medium transition-colors"
+                  >
+                    <ArrowDownTrayIcon className="h-4 w-4 mr-2" />
+                    Subtitles SRT
+                  </button>
+                  
+                  <button
+                    onClick={() => handleDownload(job.job_id, 'slides_zip')}
+                    className="inline-flex items-center px-4 py-2 bg-purple-500/20 hover:bg-purple-500/30 text-purple-400 rounded-md text-sm font-medium transition-colors"
+                  >
+                    <ArrowDownTrayIcon className="h-4 w-4 mr-2" />
+                    Slides (ZIP)
                   </button>
                 </div>
               </div>
             )}
+
           </div>
         </div>
       ))}
