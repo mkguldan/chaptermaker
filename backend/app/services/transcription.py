@@ -292,24 +292,47 @@ class TranscriptionService:
                         # Adjust timestamps to account for chunk offset
                         if hasattr(transcription, 'segments'):
                             for segment in transcription.segments:
-                                segment["start"] += cumulative_offset
-                                segment["end"] += cumulative_offset
-                                if "words" in segment:
-                                    for word in segment["words"]:
-                                        word["start"] += cumulative_offset
-                                        word["end"] += cumulative_offset
-                                all_segments.append(segment)
+                                # Create adjusted segment dict (can't modify OpenAI objects)
+                                adjusted_segment = {
+                                    "start": segment.start + cumulative_offset,
+                                    "end": segment.end + cumulative_offset,
+                                    "text": segment.text
+                                }
+                                
+                                # Adjust words if present
+                                if hasattr(segment, 'words') and segment.words:
+                                    adjusted_words = []
+                                    for word in segment.words:
+                                        adjusted_words.append({
+                                            "start": word.start + cumulative_offset,
+                                            "end": word.end + cumulative_offset,
+                                            "word": word.word
+                                        })
+                                    adjusted_segment["words"] = adjusted_words
+                                
+                                all_segments.append(adjusted_segment)
                         
                         cumulative_offset += chunk_info.get("duration", 600)  # 10 minutes default
                     
+                    # Create segment objects that mimic OpenAI's TranscriptionSegment
+                    class SegmentObject:
+                        def __init__(self, seg_dict):
+                            self.start = seg_dict["start"]
+                            self.end = seg_dict["end"]
+                            self.text = seg_dict["text"]
+                            self.words = seg_dict.get("words", [])
+                    
                     # Create a combined transcription object
                     class CombinedTranscription:
-                        def __init__(self, segments):
-                            self.segments = segments
-                            self.text = " ".join([seg.get("text", "") for seg in segments])
+                        def __init__(self, segment_dicts, language):
+                            # Convert dicts to objects for consistency with OpenAI response
+                            self.segments = [SegmentObject(seg) for seg in segment_dicts]
+                            self.text = " ".join([seg["text"] for seg in segment_dicts])
+                            self.language = language
+                            self.duration = segment_dicts[-1]["end"] if segment_dicts else 0
                     
                     logger.info(f"Successfully transcribed all {len(chunks)} chunks")
-                    return CombinedTranscription(all_segments)
+                    return CombinedTranscription(all_segments, language)
             
             # File is small enough, transcribe directly
             with open(processed_audio_path, "rb") as audio_file:
@@ -361,11 +384,12 @@ class TranscriptionService:
         
         if hasattr(transcription, 'segments'):
             for segment in transcription.segments:
+                # TranscriptionSegment objects use attributes, not dict subscripts
                 segments.append({
-                    "start": segment["start"],
-                    "end": segment["end"],
-                    "text": segment["text"].strip(),
-                    "words": segment.get("words", [])
+                    "start": segment.start,
+                    "end": segment.end,
+                    "text": segment.text.strip(),
+                    "words": getattr(segment, 'words', [])
                 })
         
         return {
