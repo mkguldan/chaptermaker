@@ -158,9 +158,15 @@ export const VideoProvider = ({ children }) => {
 
   // Poll job status and update jobs state
   const pollJobStatus = useCallback((jobId) => {
+    let errorCount = 0
+    const maxErrors = 5
+    
     const interval = setInterval(async () => {
       try {
         const updatedJob = await getJobStatus(jobId)
+        
+        // Reset error count on successful poll
+        errorCount = 0
         
         // Update the job in the jobs state
         setJobs(prev => 
@@ -176,8 +182,15 @@ export const VideoProvider = ({ children }) => {
           }
         }
       } catch (error) {
-        console.error('Error polling job status:', error)
-        clearInterval(interval)
+        errorCount++
+        console.error(`Error polling job status (${errorCount}/${maxErrors}):`, error)
+        
+        // Only stop polling after multiple consecutive errors
+        if (errorCount >= maxErrors) {
+          console.error(`Stopped polling job ${jobId} after ${maxErrors} consecutive errors`)
+          clearInterval(interval)
+          toast.error(`Lost connection to job ${jobId}. Refresh the page to check status.`)
+        }
       }
     }, 3000) // Poll every 3 seconds
     
