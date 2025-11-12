@@ -5,6 +5,7 @@ PowerPoint to image conversion using LibreOffice or alternative methods
 import logging
 import subprocess
 import platform
+import asyncio
 from pathlib import Path
 import tempfile
 import shutil
@@ -93,12 +94,19 @@ class PresentationConverter:
             
             logger.info(f"Running LibreOffice conversion: {' '.join(cmd)}")
             
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                check=True
-            )
+            try:
+                # Run with timeout (5 minutes should be more than enough for PowerPoint conversion)
+                result = await asyncio.to_thread(
+                    subprocess.run,
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                    timeout=300  # 5 minute timeout
+                )
+            except subprocess.TimeoutExpired:
+                logger.error(f"LibreOffice conversion timed out after 5 minutes")
+                raise Exception("PowerPoint conversion timed out. The file may be too complex or corrupted.")
             
             # Find the generated PDF
             pdf_files = list(Path(temp_dir).glob("*.pdf"))
