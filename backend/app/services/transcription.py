@@ -121,6 +121,7 @@ class TranscriptionService:
             output_path = audio_path.replace(Path(audio_path).suffix, "_compressed.mp3")
             
             logger.info(f"Compressing audio from {Path(audio_path).stat().st_size / (1024*1024):.2f} MB...")
+            logger.info(f"FFmpeg compression started for: {audio_path}")
             
             # Use ffmpeg to compress: mono, 64kbps (good for speech), 16kHz sample rate
             cmd = [
@@ -133,17 +134,33 @@ class TranscriptionService:
                 output_path
             ]
             
-            result = subprocess.run(cmd, capture_output=True, text=True)
+            logger.info(f"Running ffmpeg command: {' '.join(cmd)}")
+            
+            # Run in thread pool with timeout (5 minutes should be enough for compression)
+            result = await asyncio.to_thread(
+                subprocess.run,
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=300  # 5 minute timeout
+            )
             
             if result.returncode != 0:
-                logger.error(f"FFmpeg compression failed: {result.stderr}")
-                raise Exception("Audio compression failed")
+                logger.error(f"FFmpeg compression failed with code {result.returncode}")
+                logger.error(f"FFmpeg stderr: {result.stderr}")
+                logger.error(f"FFmpeg stdout: {result.stdout}")
+                raise Exception(f"Audio compression failed: {result.stderr}")
+            
+            logger.info("FFmpeg compression completed successfully")
             
             compressed_size_mb = Path(output_path).stat().st_size / (1024 * 1024)
             logger.info(f"Compressed audio to {compressed_size_mb:.2f} MB")
             
             return output_path
             
+        except subprocess.TimeoutExpired:
+            logger.error(f"FFmpeg compression timed out after 5 minutes")
+            raise Exception("Audio compression timed out. The file may be too complex to compress quickly.")
         except Exception as e:
             logger.error(f"Error compressing audio: {str(e)}")
             raise
@@ -157,6 +174,8 @@ class TranscriptionService:
             chunk_dir = Path(audio_path).parent / "chunks"
             chunk_dir.mkdir(exist_ok=True)
             
+            logger.info("Getting audio duration with ffprobe...")
+            
             # Get audio duration
             duration_cmd = [
                 "ffprobe",
@@ -166,7 +185,13 @@ class TranscriptionService:
                 audio_path
             ]
             
-            result = subprocess.run(duration_cmd, capture_output=True, text=True)
+            result = await asyncio.to_thread(
+                subprocess.run,
+                duration_cmd,
+                capture_output=True,
+                text=True,
+                timeout=30  # 30 second timeout for probe
+            )
             total_duration = float(result.stdout.strip())
             
             logger.info(f"Splitting audio: {total_duration:.2f} seconds into {chunk_duration_minutes}-minute chunks")
@@ -174,9 +199,13 @@ class TranscriptionService:
             chunk_duration_seconds = chunk_duration_minutes * 60
             num_chunks = int(total_duration / chunk_duration_seconds) + 1
             
+            logger.info(f"Will create {num_chunks} chunks")
+            
             for i in range(num_chunks):
                 start_time = i * chunk_duration_seconds
                 chunk_path = chunk_dir / f"chunk_{i:03d}.mp3"
+                
+                logger.info(f"Creating chunk {i+1}/{num_chunks} starting at {start_time:.2f}s...")
                 
                 cmd = [
                     "ffmpeg",
@@ -190,7 +219,13 @@ class TranscriptionService:
                     str(chunk_path)
                 ]
                 
-                subprocess.run(cmd, capture_output=True, check=True)
+                await asyncio.to_thread(
+                    subprocess.run,
+                    cmd,
+                    capture_output=True,
+                    check=True,
+                    timeout=180  # 3 minute timeout per chunk
+                )
                 
                 if chunk_path.exists() and chunk_path.stat().st_size > 0:
                     chunks.append({
@@ -198,6 +233,7 @@ class TranscriptionService:
                         "start_time": start_time,
                         "chunk_index": i
                     })
+                    logger.info(f"Chunk {i+1} created successfully ({chunk_path.stat().st_size / (1024*1024):.2f} MB)")
             
             logger.info(f"Split audio into {len(chunks)} chunks")
             return chunks

@@ -69,3 +69,4 @@ Write-Host "1. Add OPENAI_API_KEY to Secret Manager"
 Write-Host "2. Add GCP_SERVICE_ACCOUNT_KEY to GitHub secrets"
 Write-Host "3. Push to main branch to trigger deployment"
 
+
