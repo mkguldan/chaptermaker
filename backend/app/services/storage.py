@@ -3,6 +3,7 @@ Google Cloud Storage service for file operations
 """
 
 import logging
+import os
 from typing import Tuple, Optional, BinaryIO
 from google.cloud import storage
 from google.cloud.storage import Blob
@@ -178,16 +179,33 @@ class StorageService:
                 
             blob = bucket.blob(gcs_path)
             
+            # Check file size first
+            blob.reload()
+            file_size_mb = blob.size / (1024 * 1024) if blob.size else 0
+            logger.info(f"Downloading {gcs_path} ({file_size_mb:.2f} MB)...")
+            
             # Create temporary file
             suffix = Path(gcs_path).suffix
             temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
             temp_path = temp_file.name
             temp_file.close()
             
-            # Download file
-            await asyncio.to_thread(blob.download_to_filename, temp_path)
+            # Download file with timeout (2 minutes per MB, min 1 minute, max 10 minutes)
+            timeout_seconds = min(max(int(file_size_mb * 120), 60), 600)
+            logger.info(f"Download timeout set to {timeout_seconds} seconds")
             
-            logger.info(f"Downloaded {gcs_path} to {temp_path}")
+            try:
+                await asyncio.wait_for(
+                    asyncio.to_thread(blob.download_to_filename, temp_path),
+                    timeout=timeout_seconds
+                )
+            except asyncio.TimeoutError:
+                logger.error(f"Download timed out after {timeout_seconds} seconds")
+                if os.path.exists(temp_path):
+                    os.remove(temp_path)
+                raise Exception(f"Download of {gcs_path} timed out after {timeout_seconds} seconds")
+            
+            logger.info(f"Downloaded {gcs_path} to {temp_path} ({file_size_mb:.2f} MB)")
             return temp_path
             
         except Exception as e:
