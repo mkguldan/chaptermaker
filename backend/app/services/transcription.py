@@ -242,6 +242,27 @@ class TranscriptionService:
             logger.error(f"Error splitting audio: {str(e)}")
             raise
     
+    def _generate_transcription_prompt(self, context: str = "", previous_text: str = "") -> str:
+        """Generate an optimized prompt for transcription based on OpenAI best practices"""
+        # Base prompt with proper punctuation to encourage the model to maintain formatting
+        base = "This is a professional presentation or lecture."
+        
+        # Add context if provided
+        if context:
+            base += f" {context}"
+        
+        # Add previous context for multi-chunk transcriptions (last 200 words)
+        if previous_text:
+            # Get last ~200 words for context
+            words = previous_text.split()
+            if len(words) > 200:
+                context_text = " ".join(words[-200:])
+            else:
+                context_text = previous_text
+            base += f" Previous context: {context_text}"
+        
+        return base
+    
     async def _transcribe_audio(
         self,
         audio_path: str,
@@ -272,12 +293,19 @@ class TranscriptionService:
                     chunks = await self._split_audio(processed_audio_path, chunk_duration_minutes=10)
                     chunks_to_cleanup = [chunk["path"] for chunk in chunks]
                     
-                    # Transcribe each chunk
+                    # Transcribe each chunk with context from previous chunk
                     all_segments = []
                     cumulative_offset = 0.0
+                    previous_text = ""
                     
                     for chunk_info in chunks:
                         logger.info(f"Transcribing chunk {chunk_info['chunk_index'] + 1}/{len(chunks)}...")
+                        
+                        # Generate prompt with context from previous chunk
+                        prompt = self._generate_transcription_prompt(
+                            context="The audio contains technical terms, proper nouns, and company names.",
+                            previous_text=previous_text
+                        )
                         
                         with open(chunk_info["path"], "rb") as audio_file:
                             transcription = await asyncio.to_thread(
@@ -286,7 +314,8 @@ class TranscriptionService:
                                 file=audio_file,
                                 language=language,
                                 response_format="verbose_json",
-                                timestamp_granularities=["segment", "word"]
+                                timestamp_granularities=["segment", "word"],
+                                prompt=prompt  # Add prompting for better accuracy
                             )
                         
                         # Adjust timestamps to account for chunk offset
@@ -312,6 +341,10 @@ class TranscriptionService:
                                 
                                 all_segments.append(adjusted_segment)
                         
+                        # Store the transcribed text for context in next chunk
+                        if hasattr(transcription, 'text'):
+                            previous_text = transcription.text
+                        
                         cumulative_offset += chunk_info.get("duration", 600)  # 10 minutes default
                     
                     # Create segment objects that mimic OpenAI's TranscriptionSegment
@@ -335,6 +368,10 @@ class TranscriptionService:
                     return CombinedTranscription(all_segments, language)
             
             # File is small enough, transcribe directly
+            prompt = self._generate_transcription_prompt(
+                context="This audio contains a professional presentation with technical terms, proper nouns, and company names. Please maintain proper punctuation."
+            )
+            
             with open(processed_audio_path, "rb") as audio_file:
                 logger.info("Sending audio to OpenAI for transcription...")
                 transcription = await asyncio.to_thread(
@@ -343,7 +380,8 @@ class TranscriptionService:
                     file=audio_file,
                     language=language,
                     response_format="verbose_json",
-                    timestamp_granularities=["segment", "word"]
+                    timestamp_granularities=["segment", "word"],
+                    prompt=prompt  # Add prompting for better accuracy
                 )
             
             logger.info("Transcription completed successfully")
