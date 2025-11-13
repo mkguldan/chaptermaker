@@ -5,8 +5,8 @@ pydantic==2.10.4
 pydantic-settings==2.7.0
 python-multipart==0.0.20
 
-# OpenAI for transcription and GPT-5
-openai==1.59.4
+# OpenAI for transcription and GPT-5 (Responses API)
+openai>=1.60.0
 
 # Google Cloud Storage
 google-cloud-storage==2.19.0
