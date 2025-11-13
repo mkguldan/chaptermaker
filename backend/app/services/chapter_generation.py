@@ -37,10 +37,12 @@ class ChapterGenerationService:
             List of chapter entries with timestamps and descriptions
         """
         try:
-            logger.info("Generating chapters using GPT-5")
+            logger.info("Generating chapters using GPT-5 Responses API")
             
             # Prepare the input for GPT-5
             input_text = self._prepare_input(transcription, slide_count, custom_prompts)
+            
+            logger.debug(f"Calling GPT-5 with model: {settings.GPT5_MODEL}")
             
             # Call GPT-5 using the new Responses API
             response = self.client.responses.create(
@@ -84,8 +86,15 @@ class ChapterGenerationService:
                 }
             )
             
+            logger.info("GPT-5 response received successfully")
+            logger.debug(f"Response ID: {response.id if hasattr(response, 'id') else 'unknown'}")
+            
             # Extract chapters from the response
             chapters = self._extract_chapters_from_response(response)
+            
+            if not chapters:
+                logger.error("No chapters extracted from GPT-5 response")
+                logger.debug(f"Response output types: {[item.type for item in response.output if hasattr(item, 'type')]}")
             
             # Validate and format chapters
             formatted_chapters = self._format_chapters(chapters, transcription)
@@ -135,28 +144,36 @@ Create concise, professional chapter titles that reflect the content being discu
         
     def _extract_chapters_from_response(self, response: Any) -> List[Dict[str, Any]]:
         """Extract chapters from GPT-5 response"""
-        # The response should contain tool calls
+        # The response should contain function calls in the output array
         for item in response.output:
             if hasattr(item, 'type') and item.type == 'function_call':
-                if item.name == 'create_chapters':
-                    # Parse the function call output
-                    chapters_data = json.loads(item.output)
+                if hasattr(item, 'name') and item.name == 'create_chapters':
+                    # Parse the function call arguments
+                    # In Responses API, arguments can be a string or already parsed
+                    arguments = item.arguments if hasattr(item, 'arguments') else item.output
+                    if isinstance(arguments, str):
+                        chapters_data = json.loads(arguments)
+                    else:
+                        chapters_data = arguments
                     return chapters_data.get('chapters', [])
         
         # If no function call found, try to extract from message
         for item in response.output:
             if hasattr(item, 'type') and item.type == 'message':
-                # Try to extract JSON from the message content
-                content = item.content[0].text if item.content else ""
-                try:
-                    # Look for JSON in the message
-                    json_match = re.search(r'\{.*\}', content, re.DOTALL)
-                    if json_match:
-                        data = json.loads(json_match.group())
-                        if 'chapters' in data:
-                            return data['chapters']
-                except:
-                    pass
+                if hasattr(item, 'content') and item.content:
+                    # Content is an array of content items
+                    for content_item in item.content:
+                        if hasattr(content_item, 'type') and content_item.type == 'output_text':
+                            text = content_item.text if hasattr(content_item, 'text') else str(content_item)
+                            try:
+                                # Look for JSON in the message
+                                json_match = re.search(r'\{.*"chapters".*\}', text, re.DOTALL)
+                                if json_match:
+                                    data = json.loads(json_match.group())
+                                    if 'chapters' in data:
+                                        return data['chapters']
+                            except Exception as e:
+                                logger.debug(f"Failed to parse JSON from message: {e}")
         
         logger.warning("No chapters found in GPT-5 response")
         return []
