@@ -147,7 +147,7 @@ const JobsSection = () => {
                 <p className="text-sm text-gray-400 mb-3">Download Results:</p>
                 <div className="flex flex-wrap gap-2">
                   <button
-                    onClick={() => handleDownload(job.job_id, 'chapters_csv')}
+                    onClick={() => handleDownload(job.job_id, 'chapters')}
                     className="inline-flex items-center px-4 py-2 bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 rounded-md text-sm font-medium transition-colors"
                   >
                     <ArrowDownTrayIcon className="h-4 w-4 mr-2" />
@@ -155,7 +155,7 @@ const JobsSection = () => {
                   </button>
                   
                   <button
-                    onClick={() => handleDownload(job.job_id, 'subtitles_srt')}
+                    onClick={() => handleDownload(job.job_id, 'subtitles')}
                     className="inline-flex items-center px-4 py-2 bg-green-500/20 hover:bg-green-500/30 text-green-400 rounded-md text-sm font-medium transition-colors"
                   >
                     <ArrowDownTrayIcon className="h-4 w-4 mr-2" />
@@ -163,11 +163,19 @@ const JobsSection = () => {
                   </button>
                   
                   <button
-                    onClick={() => handleDownload(job.job_id, 'slides_zip')}
+                    onClick={() => handleDownload(job.job_id, 'transcript')}
+                    className="inline-flex items-center px-4 py-2 bg-yellow-500/20 hover:bg-yellow-500/30 text-yellow-400 rounded-md text-sm font-medium transition-colors"
+                  >
+                    <ArrowDownTrayIcon className="h-4 w-4 mr-2" />
+                    Transcript TXT
+                  </button>
+                  
+                  <button
+                    onClick={() => handleDownload(job.job_id, 'slides')}
                     className="inline-flex items-center px-4 py-2 bg-purple-500/20 hover:bg-purple-500/30 text-purple-400 rounded-md text-sm font-medium transition-colors"
                   >
                     <ArrowDownTrayIcon className="h-4 w-4 mr-2" />
-                    Slides (ZIP)
+                    Slides
                   </button>
                 </div>
               </div>
