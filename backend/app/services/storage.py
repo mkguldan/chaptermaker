@@ -120,7 +120,8 @@ class StorageService:
     async def generate_download_url(
         self,
         file_path: str,
-        expiration_seconds: int = 3600
+        expiration_seconds: int = 3600,
+        custom_filename: str = None
     ) -> str:
         """
         Generate a signed URL for file download using access token
@@ -128,6 +129,7 @@ class StorageService:
         Args:
             file_path: GCS path to file
             expiration_seconds: URL expiration time
+            custom_filename: Optional custom filename for download (overrides path filename)
             
         Returns:
             Signed download URL
@@ -144,8 +146,8 @@ class StorageService:
             # Get access token and service account email
             access_token, service_account_email = await self._get_credentials_and_token()
             
-            # Extract filename from path for Content-Disposition header
-            filename = Path(file_path).name
+            # Use custom filename or extract from path for Content-Disposition header
+            filename = custom_filename if custom_filename else Path(file_path).name
             
             # Generate signed URL for download with Content-Disposition to force download
             url = await asyncio.to_thread(
@@ -370,6 +372,86 @@ class StorageService:
             logger.error(f"Error copying file: {str(e)}")
             raise
             
+    async def create_all_outputs_zip(
+        self,
+        output_files: Dict[str, str],
+        job_id: str
+    ) -> str:
+        """
+        Create a ZIP file containing all output files
+        
+        Args:
+            output_files: Dictionary of output file paths
+            job_id: Job identifier
+            
+        Returns:
+            GCS path to the created ZIP file
+        """
+        import zipfile
+        import tempfile
+        import os
+        
+        try:
+            # Create temporary directory for downloads
+            temp_dir = tempfile.mkdtemp()
+            temp_zip_path = os.path.join(temp_dir, f"{job_id}_all_outputs.zip")
+            
+            logger.info(f"Creating all-outputs ZIP for job {job_id}")
+            
+            with zipfile.ZipFile(temp_zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+                for output_type, gcs_path in output_files.items():
+                    try:
+                        # Download each file
+                        temp_file_path = await self.download_to_temp(gcs_path)
+                        
+                        # Determine filename in ZIP
+                        if output_type == 'chapters':
+                            arcname = 'importChapters.csv'
+                        elif output_type == 'subtitles':
+                            arcname = 'subtitles.srt'
+                        elif output_type == 'transcript':
+                            arcname = 'transcript.txt'
+                        elif output_type == 'slides':
+                            arcname = 'jpg.zip'
+                        else:
+                            arcname = Path(gcs_path).name
+                        
+                        # Add to ZIP
+                        zipf.write(temp_file_path, arcname=arcname)
+                        logger.info(f"Added {output_type} to ZIP as {arcname}")
+                        
+                        # Clean up temp file
+                        try:
+                            os.unlink(temp_file_path)
+                        except:
+                            pass
+                            
+                    except Exception as e:
+                        logger.warning(f"Could not add {output_type} to ZIP: {str(e)}")
+            
+            # Upload ZIP to GCS
+            zip_gcs_path = f"outputs/{job_id}/all_outputs.zip"
+            await self.upload_file(
+                local_path=temp_zip_path,
+                gcs_path=zip_gcs_path,
+                content_type="application/zip"
+            )
+            
+            logger.info(f"All-outputs ZIP created: {zip_gcs_path}")
+            
+            # Clean up
+            try:
+                os.unlink(temp_zip_path)
+                os.rmdir(temp_dir)
+            except:
+                pass
+            
+            return zip_gcs_path
+            
+        except Exception as e:
+            logger.error(f"Error creating all-outputs ZIP: {str(e)}")
+            raise
+    
     async def check_health(self) -> bool:
         """Check GCS connectivity"""
         try:

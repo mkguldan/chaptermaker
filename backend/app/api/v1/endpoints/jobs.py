@@ -107,10 +107,30 @@ async def get_job_results(
         # Generate download URLs for results
         result = await job_manager.get_job_results(job_id)
         
-        # Create signed download URLs
+        # Extract original filenames from paths
+        from pathlib import Path
+        original_filenames = {}
+        if job.presentation_path:
+            pres_name = Path(job.presentation_path).stem  # Get filename without extension
+            original_filenames['presentation_name'] = pres_name
+        
+        result.original_filenames = original_filenames
+        
+        # Create signed download URLs with custom filenames
         download_urls = {}
         for key, path in result.output_files.items():
-            download_urls[key] = await storage_service.generate_download_url(path)
+            custom_filename = None
+            
+            # Use original presentation name for transcript and subtitles
+            if key == 'transcript' and original_filenames.get('presentation_name'):
+                custom_filename = f"{original_filenames['presentation_name']}.txt"
+            elif key == 'subtitles' and original_filenames.get('presentation_name'):
+                custom_filename = f"{original_filenames['presentation_name']}.srt"
+            
+            download_urls[key] = await storage_service.generate_download_url(
+                path,
+                custom_filename=custom_filename
+            )
         
         result.download_urls = download_urls
         
@@ -121,6 +141,66 @@ async def get_job_results(
     except Exception as e:
         logger.error(f"Error fetching job results: {str(e)}")
         raise HTTPException(status_code=500, detail="Failed to fetch job results")
+
+
+@router.get("/{job_id}/download-all")
+async def download_all_outputs(
+    job_id: str,
+    job_manager: JobManager = Depends(),
+    storage_service: StorageService = Depends()
+):
+    """
+    Download all output files as a single ZIP
+    
+    Args:
+        job_id: Job identifier
+        
+    Returns:
+        Redirect to signed download URL for the ZIP file
+    """
+    try:
+        from fastapi.responses import RedirectResponse
+        
+        job = await job_manager.get_job(job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail="Job not found")
+        
+        if job.status != "completed":
+            raise HTTPException(
+                status_code=400,
+                detail=f"Job is not completed. Current status: {job.status}"
+            )
+        
+        # Get job results
+        result = await job_manager.get_job_results(job_id)
+        
+        # Create ZIP of all outputs
+        logger.info(f"Creating all-outputs ZIP for job {job_id}")
+        zip_path = await storage_service.create_all_outputs_zip(
+            output_files=result.output_files,
+            job_id=job_id
+        )
+        
+        # Generate download URL for the ZIP
+        from pathlib import Path
+        custom_filename = None
+        if job.presentation_path:
+            pres_name = Path(job.presentation_path).stem
+            custom_filename = f"{pres_name}_all_outputs.zip"
+        
+        download_url = await storage_service.generate_download_url(
+            zip_path,
+            custom_filename=custom_filename
+        )
+        
+        # Redirect to the signed URL
+        return RedirectResponse(url=download_url, status_code=302)
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error creating download-all ZIP: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to create download ZIP")
 
 
 @router.delete("/{job_id}")

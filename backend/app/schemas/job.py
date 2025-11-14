@@ -47,6 +47,7 @@ class JobResult(BaseModel):
     output_files: Dict[str, str] = Field(..., description="Output file paths")
     download_urls: Optional[Dict[str, str]] = Field(None, description="Signed download URLs")
     statistics: Dict[str, Any] = Field(default_factory=dict, description="Processing statistics")
+    original_filenames: Optional[Dict[str, str]] = Field(default_factory=dict, description="Original uploaded filenames")
     
     class Config:
         schema_extra = {

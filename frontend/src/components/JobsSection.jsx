@@ -30,6 +30,17 @@ const JobsSection = () => {
     }
   }
 
+  const handleDownloadAll = (jobId) => {
+    try {
+      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+      const downloadAllUrl = `${apiUrl}/api/v1/jobs/${jobId}/download-all`
+      window.location.href = downloadAllUrl
+      toast.success('Downloading all files...')
+    } catch (error) {
+      toast.error('Failed to download all files')
+    }
+  }
+
   const getStatusIcon = (status) => {
     switch (status) {
       case 'completed':
@@ -144,7 +155,19 @@ const JobsSection = () => {
             {/* Download Buttons */}
             {job.status === 'completed' && (
               <div className="mt-4 pt-4 border-t border-gray-700">
-                <p className="text-sm text-gray-400 mb-3">Download Results:</p>
+                <div className="flex items-center justify-between mb-3">
+                  <p className="text-sm text-gray-400">Download Results:</p>
+                  
+                  {/* Download All Button */}
+                  <button
+                    onClick={() => handleDownloadAll(job.job_id)}
+                    className="inline-flex items-center px-4 py-2 bg-gradient-to-r from-pink-500/20 to-purple-500/20 hover:from-pink-500/30 hover:to-purple-500/30 text-pink-400 rounded-md text-sm font-semibold transition-colors border border-pink-500/30"
+                  >
+                    <ArrowDownTrayIcon className="h-4 w-4 mr-2" />
+                    Download All
+                  </button>
+                </div>
+                
                 <div className="flex flex-wrap gap-2">
                   <button
                     onClick={() => handleDownload(job.job_id, 'chapters')}
