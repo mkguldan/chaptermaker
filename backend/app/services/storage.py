@@ -177,38 +177,53 @@ class StorageService:
             else:
                 bucket = self.upload_bucket
                 
-            # Always get a fresh blob reference to avoid generation mismatch issues
-            blob = bucket.get_blob(gcs_path)
-            if not blob:
-                raise Exception(f"Blob not found: {gcs_path}")
-            
-            # Check file size
-            file_size_mb = blob.size / (1024 * 1024) if blob.size else 0
-            logger.info(f"Downloading {gcs_path} ({file_size_mb:.2f} MB)...")
-            
-            # Create temporary file
-            suffix = Path(gcs_path).suffix
-            temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
-            temp_path = temp_file.name
-            temp_file.close()
-            
-            # Download file with timeout (2 minutes per MB, min 1 minute, max 10 minutes)
-            timeout_seconds = min(max(int(file_size_mb * 120), 60), 600)
-            logger.info(f"Download timeout set to {timeout_seconds} seconds")
-            
-            try:
-                await asyncio.wait_for(
-                    asyncio.to_thread(blob.download_to_filename, temp_path),
-                    timeout=timeout_seconds
-                )
-            except asyncio.TimeoutError:
-                logger.error(f"Download timed out after {timeout_seconds} seconds")
-                if os.path.exists(temp_path):
-                    os.remove(temp_path)
-                raise Exception(f"Download of {gcs_path} timed out after {timeout_seconds} seconds")
-            
-            logger.info(f"Downloaded {gcs_path} to {temp_path} ({file_size_mb:.2f} MB)")
-            return temp_path
+            # Retry mechanism to handle generation mismatch (file updated while downloading)
+            max_retries = 3
+            for attempt in range(max_retries):
+                try:
+                    # Always get a fresh blob reference to avoid generation mismatch issues
+                    blob = bucket.get_blob(gcs_path)
+                    if not blob:
+                        raise Exception(f"Blob not found: {gcs_path}")
+                    
+                    # Check file size
+                    file_size_mb = blob.size / (1024 * 1024) if blob.size else 0
+                    logger.info(f"Downloading {gcs_path} ({file_size_mb:.2f} MB)... (attempt {attempt + 1}/{max_retries})")
+                    
+                    # Create temporary file
+                    suffix = Path(gcs_path).suffix
+                    temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
+                    temp_path = temp_file.name
+                    temp_file.close()
+                    
+                    # Download file with timeout (2 minutes per MB, min 1 minute, max 10 minutes)
+                    timeout_seconds = min(max(int(file_size_mb * 120), 60), 600)
+                    logger.info(f"Download timeout set to {timeout_seconds} seconds")
+                    
+                    try:
+                        await asyncio.wait_for(
+                            asyncio.to_thread(blob.download_to_filename, temp_path),
+                            timeout=timeout_seconds
+                        )
+                    except asyncio.TimeoutError:
+                        logger.error(f"Download timed out after {timeout_seconds} seconds")
+                        if os.path.exists(temp_path):
+                            os.remove(temp_path)
+                        raise Exception(f"Download of {gcs_path} timed out after {timeout_seconds} seconds")
+                    
+                    logger.info(f"Downloaded {gcs_path} to {temp_path} ({file_size_mb:.2f} MB)")
+                    return temp_path
+                    
+                except Exception as e:
+                    error_msg = str(e)
+                    # If it's a 404 and we have retries left, try again with fresh blob
+                    if "404" in error_msg and attempt < max_retries - 1:
+                        logger.warning(f"404 error downloading {gcs_path}, retrying with fresh blob reference...")
+                        await asyncio.sleep(0.5)  # Brief delay before retry
+                        continue
+                    else:
+                        # Out of retries or different error
+                        raise
             
         except Exception as e:
             logger.error(f"Error downloading file: {str(e)}")
