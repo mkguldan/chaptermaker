@@ -175,7 +175,7 @@ const JobsSection = () => {
                     className="inline-flex items-center px-4 py-2 bg-purple-500/20 hover:bg-purple-500/30 text-purple-400 rounded-md text-sm font-medium transition-colors"
                   >
                     <ArrowDownTrayIcon className="h-4 w-4 mr-2" />
-                    Slides
+                    Slides (jpg.zip)
                   </button>
                 </div>
               </div>

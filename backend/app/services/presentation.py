@@ -189,8 +189,8 @@ class PresentationService:
                 else:
                     logger.info("No Q&A detected, skipping qa.jpg")
             
-            # Upload ZIP to GCS
-            gcs_path = f"outputs/{job_id}/slides.zip"
+            # Upload ZIP to GCS as jpg.zip (DaVinci Resolve naming convention)
+            gcs_path = f"outputs/{job_id}/jpg.zip"
             await self.storage_service.upload_file(
                 local_path=temp_zip_path,
                 gcs_path=gcs_path,

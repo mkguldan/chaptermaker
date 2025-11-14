@@ -130,7 +130,8 @@ class PresentationConverter:
             pil_format = "JPEG" if output_format.lower() == "jpg" else output_format.upper()
             
             for idx, image in enumerate(images, 1):
-                filename = f"{idx:02d}.{output_format}"
+                # Simple numeric filename without padding (1.jpg, 2.jpg, etc.)
+                filename = f"{idx}.{output_format}"
                 output_path = Path(output_dir) / filename
                 
                 # Ensure output directory exists
@@ -211,8 +212,8 @@ class PresentationConverter:
                 title_text = slide.shapes.title.text
                 draw.text((50, 150), title_text[:50], fill='black', font=font)
             
-            # Save image
-            filename = f"{idx:02d}.{output_format}"
+            # Save image - simple numeric filename without padding (1.jpg, 2.jpg, etc.)
+            filename = f"{idx}.{output_format}"
             output_path = Path(output_dir) / filename
             
             img.save(output_path, output_format.upper(), quality=95)

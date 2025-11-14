@@ -220,8 +220,12 @@ class VideoProcessorService:
         )
         output_files["transcript"] = transcript_path
         
-        # Reference to slides folder
-        output_files["slides"] = f"outputs/{job_id}/slides/"
+        # Reference to slides ZIP file
+        # Use zip_path from slide_results if available, otherwise construct path
+        if slide_results and "zip_path" in slide_results:
+            output_files["slides"] = slide_results["zip_path"]
+        else:
+            output_files["slides"] = f"outputs/{job_id}/jpg.zip"
         
         return output_files
         
