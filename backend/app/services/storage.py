@@ -144,14 +144,18 @@ class StorageService:
             # Get access token and service account email
             access_token, service_account_email = await self._get_credentials_and_token()
             
-            # Generate signed URL for download
+            # Extract filename from path for Content-Disposition header
+            filename = Path(file_path).name
+            
+            # Generate signed URL for download with Content-Disposition to force download
             url = await asyncio.to_thread(
                 blob.generate_signed_url,
                 version="v4",
                 expiration=timedelta(seconds=expiration_seconds),
                 method="GET",
                 service_account_email=service_account_email,
-                access_token=access_token
+                access_token=access_token,
+                response_disposition=f'attachment; filename="{filename}"'
             )
             
             return url
