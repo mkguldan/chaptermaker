@@ -4,7 +4,7 @@ const API_URL = import.meta.env.VITE_API_URL || '/api/v1'
 
 const api = axios.create({
   baseURL: API_URL,
-  timeout: 30000,
+  timeout: 90000, // 90 seconds - increased for GCS operations and job status polling
   headers: {
     'Content-Type': 'application/json',
   },

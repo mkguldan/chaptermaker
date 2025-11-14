@@ -182,34 +182,43 @@ export const VideoProvider = ({ children }) => {
           }
         }
       } catch (error) {
-        errorCount++
-        console.error(`Error polling job status (${errorCount}/${maxErrors}):`, error)
+        console.error(`Error polling job status (${errorCount + 1}/${maxErrors}):`, error)
         
-        // If it's a 404 error, the job might have completed and tracking file was cleaned up
-        // Try checking the results endpoint as a final attempt
-        if (error.response?.status === 404 && errorCount === 1) {
-          try {
-            const results = await getJobResults(jobId)
-            // If we got results, the job completed successfully
-            if (results) {
-              clearInterval(interval)
-              setJobs(prev => 
-                prev.map(j => j.job_id === jobId ? { ...j, status: 'completed' } : j)
-              )
-              toast.success(`Processing completed for job ${jobId}`)
-              return
+        // If it's a timeout error, don't count it as a "real" error
+        // The job is still processing, just the poll request was slow
+        if (error.code === 'ECONNABORTED' || error.message?.includes('timeout')) {
+          console.log('Poll request timed out, but job is still processing. Continuing...')
+          // Don't increment errorCount for timeouts
+        } else {
+          // Real error (404, 500, etc) - count it
+          errorCount++
+          
+          // If it's a 404 error, the job might have completed and tracking file was cleaned up
+          // Try checking the results endpoint as a final attempt
+          if (error.response?.status === 404 && errorCount === 1) {
+            try {
+              const results = await getJobResults(jobId)
+              // If we got results, the job completed successfully
+              if (results) {
+                clearInterval(interval)
+                setJobs(prev => 
+                  prev.map(j => j.job_id === jobId ? { ...j, status: 'completed' } : j)
+                )
+                toast.success(`Processing completed for job ${jobId}`)
+                return
+              }
+            } catch (resultsError) {
+              // Results also not found, continue counting errors
+              console.log('Results also not available, continuing polling...')
             }
-          } catch (resultsError) {
-            // Results also not found, continue counting errors
-            console.log('Results also not available, continuing polling...')
           }
-        }
-        
-        // Only stop polling after multiple consecutive errors
-        if (errorCount >= maxErrors) {
-          console.error(`Stopped polling job ${jobId} after ${maxErrors} consecutive errors`)
-          clearInterval(interval)
-          toast.error(`Lost connection to job ${jobId}. Refresh the page to check status.`)
+          
+          // Only stop polling after multiple consecutive errors
+          if (errorCount >= maxErrors) {
+            console.error(`Stopped polling job ${jobId} after ${maxErrors} consecutive errors`)
+            clearInterval(interval)
+            toast.error(`Lost connection to job ${jobId}. Refresh the page to check status.`)
+          }
         }
       }
     }, 3000) // Poll every 3 seconds
