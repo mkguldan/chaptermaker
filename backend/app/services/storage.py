@@ -4,7 +4,7 @@ Google Cloud Storage service for file operations
 
 import logging
 import os
-from typing import Tuple, Optional, BinaryIO
+from typing import Tuple, Optional, BinaryIO, Dict, Any
 from google.cloud import storage
 from google.cloud.storage import Blob
 import google.auth
