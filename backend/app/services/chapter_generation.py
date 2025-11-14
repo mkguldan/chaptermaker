@@ -71,10 +71,22 @@ class ChapterGenerationService:
                                 "items": {
                                     "type": "object",
                                     "properties": {
-                                        "timestamp_seconds": {"type": "integer"},
-                                        "slide_number": {"type": "integer"},
-                                        "title": {"type": "string"},
-                                        "is_qa": {"type": "boolean"}
+                                        "timestamp_seconds": {
+                                            "type": "integer",
+                                            "description": "The exact timestamp in seconds where this chapter begins"
+                                        },
+                                        "slide_number": {
+                                            "type": "integer",
+                                            "description": "The slide number being discussed (1 to N)"
+                                        },
+                                        "title": {
+                                            "type": "string",
+                                            "description": "Concise chapter title describing the content"
+                                        },
+                                        "is_qa": {
+                                            "type": "boolean",
+                                            "description": "Set to true ONLY when an actual question is being asked (not for transitions like 'let's take questions'). Must contain a real question starting with words like 'how', 'what', 'why', 'can', 'should', etc."
+                                        }
                                     },
                                     "required": ["timestamp_seconds", "slide_number", "title", "is_qa"],
                                     "additionalProperties": False
@@ -138,10 +150,23 @@ INSTRUCTIONS:
 1. Identify major topic transitions in the presentation
 2. Create chapter markers that align with slide changes when possible
 3. Each chapter should have a clear, descriptive title
-4. Detect Q&A sections - look for phrases like "questions", "Q&A", "let me answer", etc.
-5. For Q&A sections, set is_qa to true
-6. Ensure timestamps are in seconds and monotonically increasing
-7. Try to have one chapter per slide, but combine if slides are discussed very briefly
+4. Try to have one chapter per slide, but combine if slides are discussed very briefly
+5. Ensure timestamps are in seconds and monotonically increasing
+
+CRITICAL Q&A DETECTION RULES:
+- ONLY mark a chapter as Q&A (is_qa=true) when an ACTUAL QUESTION is being asked
+- Look for explicit questions like: "How do...", "What is...", "Can you...", "Why does...", "When should..."
+- Look for audience member asking: "So my question is...", "I was wondering...", "Could you explain..."
+- DO NOT mark transitions as Q&A, such as:
+  * "Now let's take questions"
+  * "We have time for Q&A"
+  * "Let's open it up for questions"
+  * "Any questions?"
+  * "Transition to Q&A"
+  * "Closing remarks"
+- The Q&A chapter should start EXACTLY where the first actual question begins
+- If someone says "let me answer that" or "great question", that's part of the Q&A
+- If the transcript ends with "thank you" or closing without questions, do NOT mark it as Q&A
 
 Create concise, professional chapter titles that reflect the content being discussed."""
 
@@ -197,8 +222,27 @@ Create concise, professional chapter titles that reflect the content being discu
             title = chapter['title']
             title = self._normalize_text(title)
             
+            # Check if this is a Q&A chapter
+            is_qa = chapter.get('is_qa', False)
+            
+            # Filter out false Q&A markers (transitions, closings, etc.)
+            if is_qa:
+                title_lower = title.lower()
+                # Phrases that indicate this is NOT an actual Q&A section
+                transition_phrases = [
+                    'transition', 'opening', 'closing', 'introduction',
+                    'let\'s take', 'time for', 'any questions', 'open it up',
+                    'now for questions', 'we have time', 'thank you',
+                    'that\'s all', 'wrapping up', 'in conclusion'
+                ]
+                
+                # If the title contains transition phrases, don't mark as Q&A
+                if any(phrase in title_lower for phrase in transition_phrases):
+                    logger.info(f"Filtering out false Q&A marker: '{title}'")
+                    is_qa = False
+            
             # Determine image name
-            if chapter.get('is_qa', False):
+            if is_qa:
                 qa_counter += 1
                 image_name = "qa"
                 # Override title to standard Q&A format
