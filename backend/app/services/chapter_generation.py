@@ -7,6 +7,7 @@ from typing import Dict, Any, List, Optional
 from openai import OpenAI
 import json
 import re
+import asyncio
 from datetime import timedelta
 from app.core.config import settings
 
@@ -17,7 +18,11 @@ class ChapterGenerationService:
     """Service for generating chapters using GPT-5's new Responses API"""
     
     def __init__(self):
-        self.client = OpenAI(api_key=settings.OPENAI_API_KEY)
+        # Set a generous timeout for GPT-5 reasoning (3 minutes)
+        self.client = OpenAI(
+            api_key=settings.OPENAI_API_KEY,
+            timeout=180.0  # 3 minutes for GPT-5 reasoning
+        )
         
     async def generate_chapters(
         self,

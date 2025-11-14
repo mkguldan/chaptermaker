@@ -271,7 +271,7 @@ class StorageService:
         content_type: str = "text/plain"
     ) -> str:
         """
-        Upload text content directly to GCS
+        Upload text content directly to GCS with retry logic
         
         Args:
             content: Text content to upload
@@ -281,22 +281,55 @@ class StorageService:
         Returns:
             GCS path
         """
-        try:
-            blob = self.output_bucket.blob(gcs_path)
-            
-            # Upload content
-            await asyncio.to_thread(
-                blob.upload_from_string,
-                content,
-                content_type=content_type
-            )
-            
-            logger.info(f"Uploaded content to {gcs_path}")
-            return gcs_path
-            
-        except Exception as e:
-            logger.error(f"Error uploading content: {str(e)}")
-            raise
+        max_retries = 3
+        
+        for attempt in range(max_retries):
+            try:
+                blob = self.output_bucket.blob(gcs_path)
+                
+                # Calculate timeout based on content size (30 seconds per MB, min 10 seconds, max 2 minutes)
+                content_size_mb = len(content.encode('utf-8')) / (1024 * 1024)
+                timeout_seconds = min(max(int(content_size_mb * 30), 10), 120)
+                
+                if attempt == 0:
+                    logger.debug(f"Uploading {content_size_mb:.2f} MB with {timeout_seconds}s timeout")
+                else:
+                    logger.info(f"Retry {attempt}/{max_retries-1} uploading to {gcs_path}")
+                
+                # Upload content with timeout
+                try:
+                    await asyncio.wait_for(
+                        asyncio.to_thread(
+                            blob.upload_from_string,
+                            content,
+                            content_type=content_type
+                        ),
+                        timeout=timeout_seconds
+                    )
+                    
+                    logger.info(f"Uploaded content to {gcs_path}")
+                    return gcs_path
+                    
+                except asyncio.TimeoutError:
+                    error_msg = f"Upload of {gcs_path} timed out after {timeout_seconds} seconds"
+                    if attempt < max_retries - 1:
+                        logger.warning(f"{error_msg}, retrying...")
+                        await asyncio.sleep(1)  # Brief delay before retry
+                        continue
+                    else:
+                        logger.error(error_msg)
+                        raise Exception(error_msg)
+                        
+            except Exception as e:
+                error_msg = str(e)
+                # Retry on connection errors
+                if ("Connection" in error_msg or "Remote" in error_msg) and attempt < max_retries - 1:
+                    logger.warning(f"Connection error uploading {gcs_path}: {error_msg}, retrying...")
+                    await asyncio.sleep(1)  # Brief delay before retry
+                    continue
+                else:
+                    logger.error(f"Error uploading content: {error_msg}")
+                    raise
             
     async def copy_file(
         self,
