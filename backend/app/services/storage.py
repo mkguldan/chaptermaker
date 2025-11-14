@@ -177,10 +177,12 @@ class StorageService:
             else:
                 bucket = self.upload_bucket
                 
-            blob = bucket.blob(gcs_path)
+            # Always get a fresh blob reference to avoid generation mismatch issues
+            blob = bucket.get_blob(gcs_path)
+            if not blob:
+                raise Exception(f"Blob not found: {gcs_path}")
             
-            # Check file size first
-            blob.reload()
+            # Check file size
             file_size_mb = blob.size / (1024 * 1024) if blob.size else 0
             logger.info(f"Downloading {gcs_path} ({file_size_mb:.2f} MB)...")
             

@@ -185,6 +185,26 @@ export const VideoProvider = ({ children }) => {
         errorCount++
         console.error(`Error polling job status (${errorCount}/${maxErrors}):`, error)
         
+        // If it's a 404 error, the job might have completed and tracking file was cleaned up
+        // Try checking the results endpoint as a final attempt
+        if (error.response?.status === 404 && errorCount === 1) {
+          try {
+            const results = await getJobResults(jobId)
+            // If we got results, the job completed successfully
+            if (results) {
+              clearInterval(interval)
+              setJobs(prev => 
+                prev.map(j => j.job_id === jobId ? { ...j, status: 'completed' } : j)
+              )
+              toast.success(`Processing completed for job ${jobId}`)
+              return
+            }
+          } catch (resultsError) {
+            // Results also not found, continue counting errors
+            console.log('Results also not available, continuing polling...')
+          }
+        }
+        
         // Only stop polling after multiple consecutive errors
         if (errorCount >= maxErrors) {
           console.error(`Stopped polling job ${jobId} after ${maxErrors} consecutive errors`)
@@ -195,7 +215,7 @@ export const VideoProvider = ({ children }) => {
     }, 3000) // Poll every 3 seconds
     
     return () => clearInterval(interval)
-  }, [getJobStatus])
+  }, [getJobStatus, getJobResults])
 
   // Add to upload queue
   const addToQueue = useCallback((video, presentation) => {
