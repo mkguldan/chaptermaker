@@ -28,7 +28,9 @@ $lifecycleConfig = @"
 "@
 
 $tempFile = [System.IO.Path]::GetTempFileName()
-$lifecycleConfig | Out-File -FilePath $tempFile -Encoding UTF8
+# Use UTF8 without BOM for gsutil compatibility
+$utf8NoBom = New-Object System.Text.UTF8Encoding $false
+[System.IO.File]::WriteAllText($tempFile, $lifecycleConfig, $utf8NoBom)
 
 Write-Host "Configuring upload bucket: $UPLOAD_BUCKET" -ForegroundColor Yellow
 gsutil lifecycle set $tempFile "gs://$UPLOAD_BUCKET/"
