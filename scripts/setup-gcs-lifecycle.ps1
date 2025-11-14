@@ -1,20 +1,12 @@
 # PowerShell script to set up GCS lifecycle policies for automatic deletion after 24 hours
-# Run this once to configure the buckets
 
-$ErrorActionPreference = "Stop"
-
-# Get project ID
 $PROJECT_ID = if ($env:GCP_PROJECT_ID) { $env:GCP_PROJECT_ID } else { "ai-mvp-452812" }
-$REGION = "europe-west1"
-
-Write-Host "🗑️  Setting up GCS lifecycle policies for automatic cleanup..." -ForegroundColor Cyan
-Write-Host "Project: $PROJECT_ID"
-Write-Host "Region: $REGION"
-Write-Host ""
-
-# Bucket names
 $UPLOAD_BUCKET = "chaptermaker-uploads-$PROJECT_ID"
 $OUTPUT_BUCKET = "chaptermaker-outputs-$PROJECT_ID"
+
+Write-Host "Setting up GCS lifecycle policies for automatic cleanup..." -ForegroundColor Cyan
+Write-Host "Project: $PROJECT_ID"
+Write-Host ""
 
 # Create lifecycle configuration JSON
 $lifecycleConfig = @"
@@ -38,37 +30,30 @@ $lifecycleConfig = @"
 $tempFile = [System.IO.Path]::GetTempFileName()
 $lifecycleConfig | Out-File -FilePath $tempFile -Encoding UTF8
 
-try {
-    Write-Host "📦 Configuring lifecycle policy for upload bucket: $UPLOAD_BUCKET" -ForegroundColor Yellow
-    try {
-        gsutil lifecycle set $tempFile "gs://$UPLOAD_BUCKET/"
-        Write-Host "✓ Upload bucket configured" -ForegroundColor Green
-    } catch {
-        Write-Host "⚠️  Warning: Could not set lifecycle on upload bucket. It may not exist yet." -ForegroundColor Yellow
-    }
-
-    Write-Host ""
-    Write-Host "📦 Configuring lifecycle policy for output bucket: $OUTPUT_BUCKET" -ForegroundColor Yellow
-    try {
-        gsutil lifecycle set $tempFile "gs://$OUTPUT_BUCKET/"
-        Write-Host "✓ Output bucket configured" -ForegroundColor Green
-    } catch {
-        Write-Host "⚠️  Warning: Could not set lifecycle on output bucket. It may not exist yet." -ForegroundColor Yellow
-    }
-
-    Write-Host ""
-    Write-Host "✅ Lifecycle policies configured successfully!" -ForegroundColor Green
-    Write-Host ""
-    Write-Host "📋 Policy Summary:" -ForegroundColor Cyan
-    Write-Host "  - Files older than 1 day (24 hours) will be automatically deleted"
-    Write-Host "  - Applies to: uploads/, outputs/, job-tracking/ prefixes"
-    Write-Host "  - Deletion happens once per day (not exactly at 24h, but within 24-48h)"
-    Write-Host ""
-    Write-Host "🔍 To verify the configuration, run:" -ForegroundColor Cyan
-    Write-Host "  gsutil lifecycle get gs://$UPLOAD_BUCKET/"
-    Write-Host "  gsutil lifecycle get gs://$OUTPUT_BUCKET/"
-} finally {
-    # Clean up temp file
-    Remove-Item -Path $tempFile -ErrorAction SilentlyContinue
+Write-Host "Configuring upload bucket: $UPLOAD_BUCKET" -ForegroundColor Yellow
+gsutil lifecycle set $tempFile "gs://$UPLOAD_BUCKET/"
+if ($LASTEXITCODE -eq 0) {
+    Write-Host "Upload bucket configured" -ForegroundColor Green
+} else {
+    Write-Host "Warning: Could not configure upload bucket" -ForegroundColor Yellow
 }
 
+Write-Host ""
+Write-Host "Configuring output bucket: $OUTPUT_BUCKET" -ForegroundColor Yellow
+gsutil lifecycle set $tempFile "gs://$OUTPUT_BUCKET/"
+if ($LASTEXITCODE -eq 0) {
+    Write-Host "Output bucket configured" -ForegroundColor Green
+} else {
+    Write-Host "Warning: Could not configure output bucket" -ForegroundColor Yellow
+}
+
+# Clean up
+Remove-Item -Path $tempFile -ErrorAction SilentlyContinue
+
+Write-Host ""
+Write-Host "Lifecycle policies configured!" -ForegroundColor Green
+Write-Host "Files will be automatically deleted after 24 hours"
+Write-Host ""
+Write-Host "To verify:" -ForegroundColor Cyan
+Write-Host "  gsutil lifecycle get gs://$UPLOAD_BUCKET/"
+Write-Host "  gsutil lifecycle get gs://$OUTPUT_BUCKET/"
