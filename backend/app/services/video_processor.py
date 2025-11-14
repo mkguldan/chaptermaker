@@ -228,7 +228,8 @@ class VideoProcessorService:
     def _generate_chapters_csv(self, chapters: list) -> str:
         """Generate CSV content for chapters"""
         output = io.StringIO()
-        writer = csv.writer(output)
+        # Use QUOTE_MINIMAL for consistent quoting (only when needed)
+        writer = csv.writer(output, quoting=csv.QUOTE_MINIMAL)
         
         # Write header
         writer.writerow(["Time (s)", "Image name", "Description"])

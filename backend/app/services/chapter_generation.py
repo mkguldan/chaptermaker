@@ -185,11 +185,19 @@ Create concise, professional chapter titles that reflect the content being discu
     ) -> List[Dict[str, Any]]:
         """Format chapters into the required output format"""
         formatted = []
+        qa_counter = 0
         
         for i, chapter in enumerate(chapters):
+            # Get title and normalize special characters
+            title = chapter['title']
+            title = self._normalize_text(title)
+            
             # Determine image name
             if chapter.get('is_qa', False):
+                qa_counter += 1
                 image_name = "qa"
+                # Override title to standard Q&A format
+                title = f"Q&A #{qa_counter}"
             else:
                 slide_num = chapter.get('slide_number', i + 1)
                 image_name = str(slide_num)
@@ -197,13 +205,38 @@ Create concise, professional chapter titles that reflect the content being discu
             formatted.append({
                 "time_seconds": chapter['timestamp_seconds'],
                 "image_name": image_name,
-                "description": chapter['title']
+                "description": title
             })
         
         # Sort by timestamp
         formatted.sort(key=lambda x: x['time_seconds'])
         
         return formatted
+    
+    def _normalize_text(self, text: str) -> str:
+        """Normalize Unicode characters to ASCII equivalents"""
+        import unicodedata
+        
+        # Replace common Unicode characters with ASCII equivalents
+        replacements = {
+            '\u2011': '-',  # Non-breaking hyphen
+            '\u2013': '-',  # En dash
+            '\u2014': '--', # Em dash
+            '\u2018': "'",  # Left single quote
+            '\u2019': "'",  # Right single quote
+            '\u201c': '"',  # Left double quote
+            '\u201d': '"',  # Right double quote
+            '\u2026': '...', # Ellipsis
+        }
+        
+        for unicode_char, ascii_char in replacements.items():
+            text = text.replace(unicode_char, ascii_char)
+        
+        # Remove any remaining non-ASCII characters
+        text = unicodedata.normalize('NFKD', text)
+        text = text.encode('ascii', 'ignore').decode('ascii')
+        
+        return text
         
     def _detect_qa_sections(
         self,
