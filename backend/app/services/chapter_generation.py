@@ -54,7 +54,7 @@ class ChapterGenerationService:
                 model=settings.GPT5_MODEL,
                 input=input_text,
                 reasoning={
-                    "effort": "medium"  # Use medium reasoning for balanced performance
+                    "effort": "high"  # Use high reasoning for maximum accuracy on timestamps
                 },
                 text={
                     "verbosity": "low"  # We want concise chapter descriptions
@@ -73,7 +73,7 @@ class ChapterGenerationService:
                                     "properties": {
                                         "timestamp_seconds": {
                                             "type": "integer",
-                                            "description": "The exact timestamp in seconds where this chapter begins"
+                                            "description": "The EXACT timestamp in seconds where this chapter begins. Read the [MM:SS] timestamp from the transcript line where the topic/question starts and convert to seconds (MM*60 + SS). Be precise - use the timestamp of the FIRST line introducing this topic."
                                         },
                                         "slide_number": {
                                             "type": "integer",
@@ -153,19 +153,25 @@ INSTRUCTIONS:
 1. Each line in the transcript shows EXACTLY when (in [MM:SS] format) that text is spoken
 2. Identify major topic transitions by analyzing the ACTUAL CONTENT and noting the timestamp where they occur
 3. Use the EXACT timestamps you see in the transcript - convert [MM:SS] to seconds (MM*60 + SS)
-4. Create chapter markers that align with slide changes when possible
-5. Each chapter should have a clear, descriptive title
-6. Try to have one chapter per slide, but combine if slides are discussed very briefly
-7. Ensure timestamps are in seconds and monotonically increasing
-8. CRITICAL: DO NOT estimate or space chapters evenly - use the EXACT timestamps from the transcript
-9. Look for natural topic transitions, new concepts being introduced, or significant shifts in discussion
-10. When you identify a topic change, note the [MM:SS] timestamp of that line and convert it to seconds
+4. When a topic changes, use the timestamp of the FIRST sentence introducing that new topic (not nearby sentences)
+5. Look for phrases that signal new topics: "So...", "Now...", "Second example...", "And I will give you...", "What is important..."
+6. Create chapter markers that align with slide changes when possible
+7. Each chapter should have a clear, descriptive title
+8. Try to have one chapter per slide, but combine if slides are discussed very briefly
+9. Ensure timestamps are in seconds and monotonically increasing
+10. CRITICAL: DO NOT estimate or space chapters evenly - use the EXACT timestamps from the transcript
+11. Precision matters: Use the timestamp of the EXACT line where the speaker begins the new topic, not 20-40 seconds before or after
+12. For case studies/examples, mark the chapter at the line where the speaker explicitly introduces it (e.g., "I will give you this example", "Second example")
+13. WORKFLOW: Read through the transcript systematically, note each topic change and its [MM:SS] timestamp, then convert all to seconds
+14. Double-check: Before finalizing, verify each timestamp matches the actual line in the transcript where that topic/question begins
 
 CRITICAL Q&A DETECTION RULES:
+- SCAN THE ENTIRE TRANSCRIPT carefully to find ALL questions asked by audience members
 - CREATE A SEPARATE CHAPTER for EACH individual question asked
 - ONLY mark a chapter as Q&A (is_qa=true) when an ACTUAL QUESTION is being asked by an audience member
-- Look for explicit questions like: "How do...", "What is...", "Can you...", "Why does...", "When should...", "Thanks for..."
+- Look for explicit questions like: "How do...", "What is...", "Can you...", "Why does...", "When should...", "Thanks for...", "Would you..."
 - Look for audience members asking: "So my question is...", "I was wondering...", "Could you explain...", "I have a question about..."
+- Questions often start with "Thanks/Thank you for..." followed by actual question content
 - CRITICAL: DO NOT mark transitions/announcements as Q&A, such as:
   * "Now let's take questions"
   * "We have time for Q&A"
@@ -174,26 +180,41 @@ CRITICAL Q&A DETECTION RULES:
   * "Transition to Q&A" or "Transition to audience Q&A"
   * "Moving to questions"
   * "Closing remarks"
-  * "Thank you"
-- Each Q&A chapter should start EXACTLY where each individual question begins in the transcript
-- Look at the timestamps in the transcript to find where questions appear - they often start shortly after the main presentation ends
-- If someone says "let me answer that" or "great question", that's part of the previous Q&A chapter, not a new one
-- If the transcript ends with "thank you" or closing without actual questions being asked, do NOT mark it as Q&A
-- Place the timestamp at the EXACT second when the question asker starts speaking (use the timestamp from the transcript line)
-- VERIFY: Check the transcript text at your proposed timestamp to ensure an actual question is there
+  * "Thank you" (without a question following)
+- Each Q&A chapter should start at the EXACT timestamp where the question asker begins speaking
+- Scan through the ENTIRE Q&A section - there may be 5, 6, or more individual questions
+- If someone says "let me answer that" or "great question", that's the presenter answering, NOT a new question
+- Use the [MM:SS] timestamp of the FIRST line where each new person asks a question
+- Place the timestamp at the EXACT second when the question asker starts speaking (use the timestamp from that transcript line)
+- VERIFY: For each Q&A chapter, ensure the timestamp points to the start of a question, not an answer or transition
 
-EXAMPLE - Correct Q&A Detection:
-Transcript shows: "[21:19] Thanks a lot for your presentation. You mentioned that you are willing to pay a higher price..."
-→ This IS a Q&A chapter (starts with thanks + question content)
-→ Mark: is_qa=true, timestamp_seconds=1279 (21*60 + 19), title="Q&A #1"
+EXAMPLES - Correct Timestamp Detection:
 
-Transcript shows: "[21:02] Thank you very much."
-→ This is NOT a Q&A chapter (just a closing, no question being asked)
-→ Mark: is_qa=false
+Topic Transitions:
+"[08:28] Just I want to discuss a little bit about chain of custody..."
+→ New topic starts HERE at 508s (8*60 + 28), not 20s before or after
 
-Transcript shows: "[28:20] We now have time for questions."
-→ This is NOT a Q&A chapter (transition announcement, not an actual question)
-→ Mark: is_qa=false
+"[12:02] And I will give you this example. We start a 10-year project..."
+→ Example begins HERE at 722s (12*60 + 2), mark this exact timestamp
+
+Q&A Detection:
+"[21:19] Thanks a lot for your presentation. You mentioned that you are willing to pay a higher price..."
+→ Q&A #1 starts at 1279s (21*60 + 19)
+
+"[24:01] Thank you very much for the presentation. Very interesting. And actually, I love your identify options..."
+→ Q&A #2 starts at 1441s (24*60 + 1)
+
+"[27:02] Thanks for the presentation. I think you've been focusing on the area of recyclability..."
+→ Q&A #3 starts at 1622s (27*60 + 2)
+
+"[31:00] I was really impressed by how you're involving stakeholders..."
+→ Q&A #5 starts at 1860s (31*60 + 0)
+
+"[21:02] Thank you very much." (no question follows)
+→ NOT Q&A (just closing)
+
+"[28:20] We now have time for questions."
+→ NOT Q&A (transition announcement)
 
 Create concise, professional chapter titles that reflect the content being discussed."""
 
