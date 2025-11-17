@@ -18,10 +18,10 @@ class ChapterGenerationService:
     """Service for generating chapters using GPT-5's new Responses API"""
     
     def __init__(self):
-        # Set a generous timeout for GPT-5 reasoning (3 minutes)
+        # Set a generous timeout for GPT-5 reasoning (5 minutes)
         self.client = OpenAI(
             api_key=settings.OPENAI_API_KEY,
-            timeout=180.0  # 3 minutes for GPT-5 reasoning
+            timeout=300.0  # 5 minutes for GPT-5 reasoning with timestamped transcripts
         )
         
     async def generate_chapters(
@@ -54,7 +54,7 @@ class ChapterGenerationService:
                 model=settings.GPT5_MODEL,
                 input=input_text,
                 reasoning={
-                    "effort": "high"  # Use high reasoning for maximum accuracy on timestamps
+                    "effort": "medium"  # Balanced reasoning - "high" takes 9+ minutes and times out
                 },
                 text={
                     "verbosity": "low"  # We want concise chapter descriptions
