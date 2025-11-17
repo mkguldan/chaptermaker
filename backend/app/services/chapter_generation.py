@@ -85,7 +85,7 @@ class ChapterGenerationService:
                                         },
                                         "is_qa": {
                                             "type": "boolean",
-                                            "description": "Set to true ONLY when an actual question is being asked by an audience member (not for transitions like 'let's take questions'). Create a SEPARATE chapter for EACH individual question. Must contain a real question starting with words like 'how', 'what', 'why', 'can', 'should', 'thanks for', etc."
+                                            "description": "Set to true ONLY when an actual question is being asked by an audience member (not for transitions like 'let's take questions' or 'transition to Q&A'). Create a SEPARATE chapter for EACH individual question. Must contain a real question starting with words like 'how', 'what', 'why', 'can', 'should', 'thanks for', etc. Verify the transcript text at this timestamp contains an actual question being asked."
                                         }
                                     },
                                     "required": ["timestamp_seconds", "slide_number", "title", "is_qa"],
@@ -158,20 +158,33 @@ INSTRUCTIONS:
 
 CRITICAL Q&A DETECTION RULES:
 - CREATE A SEPARATE CHAPTER for EACH individual question asked
-- ONLY mark a chapter as Q&A (is_qa=true) when an ACTUAL QUESTION is being asked
+- ONLY mark a chapter as Q&A (is_qa=true) when an ACTUAL QUESTION is being asked by an audience member
 - Look for explicit questions like: "How do...", "What is...", "Can you...", "Why does...", "When should...", "Thanks for..."
 - Look for audience members asking: "So my question is...", "I was wondering...", "Could you explain...", "I have a question about..."
-- DO NOT mark transitions as Q&A, such as:
+- CRITICAL: DO NOT mark transitions/announcements as Q&A, such as:
   * "Now let's take questions"
   * "We have time for Q&A"
   * "Let's open it up for questions"
   * "Any questions?"
-  * "Transition to Q&A"
+  * "Transition to Q&A" or "Transition to audience Q&A"
+  * "Moving to questions"
   * "Closing remarks"
-- Each Q&A chapter should start EXACTLY where each individual question begins
+  * "Thank you"
+- Each Q&A chapter should start EXACTLY where each individual question begins in the transcript
+- Read the ACTUAL TRANSCRIPT CAREFULLY to find where questions appear - they often start shortly after the main presentation ends
 - If someone says "let me answer that" or "great question", that's part of the previous Q&A chapter, not a new one
-- If the transcript ends with "thank you" or closing without questions, do NOT mark it as Q&A
+- If the transcript ends with "thank you" or closing without actual questions being asked, do NOT mark it as Q&A
 - Place the timestamp at the EXACT second when the question asker starts speaking, not when the answer begins
+- VERIFY: Check the transcript text at your proposed timestamp to ensure an actual question is there
+
+EXAMPLE - Correct Q&A Detection:
+Transcript at 1280s: "Thanks a lot for your presentation. You mentioned that you are willing to pay a higher price..."
+→ This IS a Q&A chapter (starts with thanks + question content)
+→ Mark: is_qa=true, timestamp_seconds=1280, title="Q&A #1"
+
+Transcript at 1700s: "Thank you very much. That concludes our presentation. We now have time for questions."
+→ This is NOT a Q&A chapter (transition announcement)
+→ Mark: is_qa=false
 
 Create concise, professional chapter titles that reflect the content being discussed."""
 
@@ -238,7 +251,8 @@ Create concise, professional chapter titles that reflect the content being discu
                     'transition', 'opening', 'closing', 'introduction',
                     'let\'s take', 'time for', 'any questions', 'open it up',
                     'now for questions', 'we have time', 'thank you',
-                    'that\'s all', 'wrapping up', 'in conclusion'
+                    'that\'s all', 'wrapping up', 'in conclusion',
+                    'audience q&a', 'transition to', 'moving to', 'questions section'
                 ]
                 
                 # If the title contains transition phrases, don't mark as Q&A
