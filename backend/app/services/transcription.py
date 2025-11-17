@@ -101,18 +101,59 @@ class TranscriptionService:
             raise
             
     async def _extract_audio(self, video_path: str) -> str:
-        """Extract audio from video file"""
-        from moviepy.editor import VideoFileClip
+        """Extract audio from video file using ffmpeg (fallback to moviepy if needed)"""
+        import subprocess
         
         audio_path = video_path.replace(Path(video_path).suffix, ".wav")
         
         try:
-            # Extract audio using moviepy
-            video = VideoFileClip(video_path)
-            video.audio.write_audiofile(audio_path, logger=None)
-            video.close()
+            # Try ffmpeg first (more reliable, already installed in Docker)
+            logger.info(f"Extracting audio using ffmpeg from: {video_path}")
             
+            cmd = [
+                'ffmpeg',
+                '-i', video_path,
+                '-vn',  # No video
+                '-acodec', 'pcm_s16le',  # WAV codec
+                '-ar', '16000',  # 16kHz sample rate (good for speech)
+                '-ac', '1',  # Mono
+                '-y',  # Overwrite output file
+                audio_path
+            ]
+            
+            result = await asyncio.to_thread(
+                subprocess.run,
+                cmd,
+                capture_output=True,
+                text=True,
+                check=True
+            )
+            
+            logger.info(f"Audio extracted successfully to: {audio_path}")
             return audio_path
+            
+        except subprocess.CalledProcessError as e:
+            logger.error(f"FFmpeg extraction failed: {e.stderr}")
+            
+            # Fallback to moviepy if ffmpeg fails
+            try:
+                logger.info("Falling back to moviepy for audio extraction...")
+                from moviepy.editor import VideoFileClip
+                
+                video = VideoFileClip(video_path)
+                video.audio.write_audiofile(audio_path, logger=None)
+                video.close()
+                
+                logger.info(f"Audio extracted successfully using moviepy: {audio_path}")
+                return audio_path
+                
+            except ImportError:
+                logger.error("moviepy not available and ffmpeg failed")
+                raise Exception("Could not extract audio: ffmpeg failed and moviepy not available")
+            except Exception as moviepy_error:
+                logger.error(f"Moviepy extraction also failed: {str(moviepy_error)}")
+                raise Exception(f"Audio extraction failed: ffmpeg error: {e.stderr}, moviepy error: {str(moviepy_error)}")
+                
         except Exception as e:
             logger.error(f"Error extracting audio: {str(e)}")
             raise

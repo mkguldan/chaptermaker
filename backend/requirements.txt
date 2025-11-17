@@ -13,7 +13,7 @@ google-cloud-storage==2.19.0
 google-cloud-tasks==2.16.5
 
 # Video processing
-moviepy==2.1.1
+moviepy==2.1.1  # Optional: ffmpeg is used as primary method, moviepy as fallback
 ffmpeg-python==0.2.0
 
 # PDF and PowerPoint processing
