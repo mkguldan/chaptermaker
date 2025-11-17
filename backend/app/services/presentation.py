@@ -128,8 +128,9 @@ class PresentationService:
                 slide_path = temp_file.name
                 temp_file.close()
                 
-                # Save image
-                image.save(slide_path, output_format.upper(), quality=95)
+                # Save image (map jpg -> JPEG for PIL)
+                pil_format = "JPEG" if output_format.lower() == "jpg" else output_format.upper()
+                image.save(slide_path, pil_format, quality=95)
                 
                 slides.append({
                     "number": idx,
