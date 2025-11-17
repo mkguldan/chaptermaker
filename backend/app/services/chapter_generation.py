@@ -85,7 +85,7 @@ class ChapterGenerationService:
                                         },
                                         "is_qa": {
                                             "type": "boolean",
-                                            "description": "Set to true ONLY when an actual question is being asked (not for transitions like 'let's take questions'). Must contain a real question starting with words like 'how', 'what', 'why', 'can', 'should', etc."
+                                            "description": "Set to true ONLY when an actual question is being asked by an audience member (not for transitions like 'let's take questions'). Create a SEPARATE chapter for EACH individual question. Must contain a real question starting with words like 'how', 'what', 'why', 'can', 'should', 'thanks for', etc."
                                         }
                                     },
                                     "required": ["timestamp_seconds", "slide_number", "title", "is_qa"],
@@ -147,16 +147,20 @@ CONTEXT:
 - The presentation slides are numbered from 1 to {slide_count}
 
 INSTRUCTIONS:
-1. Identify major topic transitions in the presentation
+1. Identify major topic transitions in the presentation by analyzing the ACTUAL CONTENT
 2. Create chapter markers that align with slide changes when possible
 3. Each chapter should have a clear, descriptive title
 4. Try to have one chapter per slide, but combine if slides are discussed very briefly
 5. Ensure timestamps are in seconds and monotonically increasing
+6. IMPORTANT: Use the ACTUAL timestamps from the transcript where topics change - DO NOT space chapters evenly
+7. Look for natural topic transitions, new concepts being introduced, or significant shifts in discussion
+8. Timestamps should reflect WHEN in the transcript the speaker begins discussing that topic
 
 CRITICAL Q&A DETECTION RULES:
+- CREATE A SEPARATE CHAPTER for EACH individual question asked
 - ONLY mark a chapter as Q&A (is_qa=true) when an ACTUAL QUESTION is being asked
-- Look for explicit questions like: "How do...", "What is...", "Can you...", "Why does...", "When should..."
-- Look for audience member asking: "So my question is...", "I was wondering...", "Could you explain..."
+- Look for explicit questions like: "How do...", "What is...", "Can you...", "Why does...", "When should...", "Thanks for..."
+- Look for audience members asking: "So my question is...", "I was wondering...", "Could you explain...", "I have a question about..."
 - DO NOT mark transitions as Q&A, such as:
   * "Now let's take questions"
   * "We have time for Q&A"
@@ -164,9 +168,10 @@ CRITICAL Q&A DETECTION RULES:
   * "Any questions?"
   * "Transition to Q&A"
   * "Closing remarks"
-- The Q&A chapter should start EXACTLY where the first actual question begins
-- If someone says "let me answer that" or "great question", that's part of the Q&A
+- Each Q&A chapter should start EXACTLY where each individual question begins
+- If someone says "let me answer that" or "great question", that's part of the previous Q&A chapter, not a new one
 - If the transcript ends with "thank you" or closing without questions, do NOT mark it as Q&A
+- Place the timestamp at the EXACT second when the question asker starts speaking, not when the answer begins
 
 Create concise, professional chapter titles that reflect the content being discussed."""
 

@@ -32,8 +32,15 @@ const JobsSection = () => {
 
   const handleDownloadAll = (jobId) => {
     try {
-      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000'
-      const downloadAllUrl = `${apiUrl}/api/v1/jobs/${jobId}/download-all`
+      // Use VITE_API_URL if set, otherwise construct relative URL
+      const apiUrl = import.meta.env.VITE_API_URL || '/api/v1'
+      
+      // If apiUrl is relative, construct full URL from current origin
+      const baseUrl = apiUrl.startsWith('http') 
+        ? apiUrl 
+        : `${window.location.origin}${apiUrl}`
+      
+      const downloadAllUrl = `${baseUrl}/jobs/${jobId}/download-all`
       window.location.href = downloadAllUrl
       toast.success('Downloading all files...')
     } catch (error) {
