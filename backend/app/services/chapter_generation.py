@@ -136,10 +136,13 @@ class ChapterGenerationService:
         base_prompt = custom_prompts.get("base_prompt") if custom_prompts else None
         
         if not base_prompt:
+            # Format transcript with timestamps so GPT-5 can see WHEN things are said
+            timestamped_transcript = self._format_transcript_with_timestamps(transcription)
+            
             base_prompt = f"""Analyze this presentation transcript and create chapter markers.
 
-TRANSCRIPT:
-{transcription['full_text']}
+TRANSCRIPT WITH TIMESTAMPS:
+{timestamped_transcript}
 
 CONTEXT:
 - Total presentation slides: {slide_count}
@@ -147,14 +150,16 @@ CONTEXT:
 - The presentation slides are numbered from 1 to {slide_count}
 
 INSTRUCTIONS:
-1. Identify major topic transitions in the presentation by analyzing the ACTUAL CONTENT
-2. Create chapter markers that align with slide changes when possible
-3. Each chapter should have a clear, descriptive title
-4. Try to have one chapter per slide, but combine if slides are discussed very briefly
-5. Ensure timestamps are in seconds and monotonically increasing
-6. IMPORTANT: Use the ACTUAL timestamps from the transcript where topics change - DO NOT space chapters evenly
-7. Look for natural topic transitions, new concepts being introduced, or significant shifts in discussion
-8. Timestamps should reflect WHEN in the transcript the speaker begins discussing that topic
+1. Each line in the transcript shows EXACTLY when (in [MM:SS] format) that text is spoken
+2. Identify major topic transitions by analyzing the ACTUAL CONTENT and noting the timestamp where they occur
+3. Use the EXACT timestamps you see in the transcript - convert [MM:SS] to seconds (MM*60 + SS)
+4. Create chapter markers that align with slide changes when possible
+5. Each chapter should have a clear, descriptive title
+6. Try to have one chapter per slide, but combine if slides are discussed very briefly
+7. Ensure timestamps are in seconds and monotonically increasing
+8. CRITICAL: DO NOT estimate or space chapters evenly - use the EXACT timestamps from the transcript
+9. Look for natural topic transitions, new concepts being introduced, or significant shifts in discussion
+10. When you identify a topic change, note the [MM:SS] timestamp of that line and convert it to seconds
 
 CRITICAL Q&A DETECTION RULES:
 - CREATE A SEPARATE CHAPTER for EACH individual question asked
@@ -171,24 +176,48 @@ CRITICAL Q&A DETECTION RULES:
   * "Closing remarks"
   * "Thank you"
 - Each Q&A chapter should start EXACTLY where each individual question begins in the transcript
-- Read the ACTUAL TRANSCRIPT CAREFULLY to find where questions appear - they often start shortly after the main presentation ends
+- Look at the timestamps in the transcript to find where questions appear - they often start shortly after the main presentation ends
 - If someone says "let me answer that" or "great question", that's part of the previous Q&A chapter, not a new one
 - If the transcript ends with "thank you" or closing without actual questions being asked, do NOT mark it as Q&A
-- Place the timestamp at the EXACT second when the question asker starts speaking, not when the answer begins
+- Place the timestamp at the EXACT second when the question asker starts speaking (use the timestamp from the transcript line)
 - VERIFY: Check the transcript text at your proposed timestamp to ensure an actual question is there
 
 EXAMPLE - Correct Q&A Detection:
-Transcript at 1280s: "Thanks a lot for your presentation. You mentioned that you are willing to pay a higher price..."
+Transcript shows: "[21:19] Thanks a lot for your presentation. You mentioned that you are willing to pay a higher price..."
 → This IS a Q&A chapter (starts with thanks + question content)
-→ Mark: is_qa=true, timestamp_seconds=1280, title="Q&A #1"
+→ Mark: is_qa=true, timestamp_seconds=1279 (21*60 + 19), title="Q&A #1"
 
-Transcript at 1700s: "Thank you very much. That concludes our presentation. We now have time for questions."
-→ This is NOT a Q&A chapter (transition announcement)
+Transcript shows: "[21:02] Thank you very much."
+→ This is NOT a Q&A chapter (just a closing, no question being asked)
+→ Mark: is_qa=false
+
+Transcript shows: "[28:20] We now have time for questions."
+→ This is NOT a Q&A chapter (transition announcement, not an actual question)
 → Mark: is_qa=false
 
 Create concise, professional chapter titles that reflect the content being discussed."""
 
         return base_prompt
+    
+    def _format_transcript_with_timestamps(self, transcription: Dict[str, Any]) -> str:
+        """Format transcript with timestamps so GPT-5 can see WHEN things are said"""
+        segments = transcription.get('segments', [])
+        
+        if not segments:
+            # Fallback to full text if segments not available
+            return transcription['full_text']
+        
+        formatted_lines = []
+        for segment in segments:
+            start_time = int(segment['start'])
+            # Format as "[MM:SS] text"
+            minutes = start_time // 60
+            seconds = start_time % 60
+            timestamp = f"[{minutes:02d}:{seconds:02d}]"
+            text = segment['text'].strip()
+            formatted_lines.append(f"{timestamp} {text}")
+        
+        return "\n".join(formatted_lines)
         
     def _extract_chapters_from_response(self, response: Any) -> List[Dict[str, Any]]:
         """Extract chapters from GPT-5 response"""
