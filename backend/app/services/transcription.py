@@ -49,6 +49,10 @@ class TranscriptionService:
             # Download file from GCS to temporary location
             local_file_path = await self.storage_service.download_to_temp(video_path)
             
+            # Initialize variables for cleanup
+            should_delete_audio = False
+            audio_path = None
+            
             try:
                 # Check if it's an audio file (skip extraction) or video file (extract audio)
                 file_ext = Path(local_file_path).suffix.lower()
@@ -89,7 +93,7 @@ class TranscriptionService:
                 # Clean up temporary files
                 if Path(local_file_path).exists():
                     Path(local_file_path).unlink()
-                if should_delete_audio and 'audio_path' in locals() and Path(audio_path).exists() and audio_path != local_file_path:
+                if should_delete_audio and audio_path and Path(audio_path).exists() and audio_path != local_file_path:
                     Path(audio_path).unlink()
                     
         except Exception as e:
