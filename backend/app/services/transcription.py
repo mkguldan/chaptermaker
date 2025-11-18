@@ -429,7 +429,9 @@ class TranscriptionService:
         audio_path: str,
         language: str = "en"
     ) -> Dict[str, Any]:
-        """Transcribe audio file using OpenAI, with automatic compression and chunking for large files"""
+        """Transcribe audio file using OpenAI, with automatic chunking for long files"""
+        import subprocess
+        
         # Check file size first
         file_size = Path(audio_path).stat().st_size
         file_size_mb = file_size / (1024 * 1024)
@@ -440,23 +442,39 @@ class TranscriptionService:
         chunks_to_cleanup = []
         
         try:
-            # If file is too large, try compression first
+            # Get audio duration to decide if chunking is needed
+            logger.info("Checking audio duration...")
+            duration_cmd = [
+                "ffprobe",
+                "-v", "error",
+                "-show_entries", "format=duration",
+                "-of", "default=noprint_wrappers=1:nokey=1",
+                audio_path
+            ]
+            result = subprocess.run(duration_cmd, capture_output=True, text=True, check=True)
+            audio_duration_seconds = float(result.stdout.strip())
+            audio_duration_minutes = audio_duration_seconds / 60
+            
+            logger.info(f"Audio duration: {audio_duration_minutes:.2f} minutes ({audio_duration_seconds:.2f} seconds)")
+            
+            # If file is too large, compress it first
             if file_size_mb > 25:
                 logger.info(f"File exceeds 25 MB limit, attempting compression...")
                 processed_audio_path = await self._compress_audio(audio_path)
                 needs_cleanup = True
-                
                 compressed_size_mb = Path(processed_audio_path).stat().st_size / (1024 * 1024)
+                logger.info(f"Compressed audio to {compressed_size_mb:.2f} MB")
+            
+            # Chunk if duration > 15 minutes (regardless of file size for speed)
+            # 15-minute chunks transcribe in ~60-90 seconds, which is acceptable
+            if audio_duration_minutes > 15:
+                logger.info(f"Audio duration ({audio_duration_minutes:.2f} min) exceeds 15-minute threshold, splitting into chunks for parallel processing...")
+                chunks = await self._split_audio(processed_audio_path, chunk_duration_minutes=10)
+                chunks_to_cleanup = [chunk["path"] for chunk in chunks]
                 
-                # If still too large after compression, split into chunks
-                if compressed_size_mb > 25:
-                    logger.info(f"Compressed file still too large ({compressed_size_mb:.2f} MB), splitting into chunks...")
-                    chunks = await self._split_audio(processed_audio_path, chunk_duration_minutes=10)
-                    chunks_to_cleanup = [chunk["path"] for chunk in chunks]
-                    
-                    # Transcribe all chunks in PARALLEL for much faster processing
-                    logger.info(f"Transcribing {len(chunks)} chunks in parallel...")
-                    all_segments = await self._transcribe_chunks_parallel(chunks, language)
+                # Transcribe all chunks in PARALLEL for much faster processing
+                logger.info(f"Transcribing {len(chunks)} chunks in parallel...")
+                all_segments = await self._transcribe_chunks_parallel(chunks, language)
                     
                     # Create segment objects that mimic OpenAI's TranscriptionSegment
                     class SegmentObject:
