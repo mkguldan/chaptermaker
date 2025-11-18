@@ -308,6 +308,122 @@ class TranscriptionService:
         
         return base
     
+    async def _transcribe_single_chunk(
+        self,
+        chunk_info: Dict[str, Any],
+        language: str,
+        chunk_index: int,
+        total_chunks: int
+    ) -> Dict[str, Any]:
+        """Transcribe a single audio chunk (for parallel processing)"""
+        try:
+            logger.info(f"Starting transcription of chunk {chunk_index + 1}/{total_chunks}")
+            
+            # Generate prompt for this chunk
+            prompt = self._generate_transcription_prompt(
+                context="The audio contains technical terms, proper nouns, and company names."
+            )
+            
+            # Read and transcribe the chunk
+            with open(chunk_info["path"], "rb") as audio_file:
+                transcription = await asyncio.to_thread(
+                    self.client.audio.transcriptions.create,
+                    model="whisper-1",
+                    file=audio_file,
+                    language=language,
+                    response_format="verbose_json",
+                    timestamp_granularities=["segment", "word"],
+                    prompt=prompt
+                )
+            
+            logger.info(f"Completed transcription of chunk {chunk_index + 1}/{total_chunks}")
+            
+            # Return transcription with chunk info for later assembly
+            return {
+                "chunk_index": chunk_index,
+                "transcription": transcription,
+                "chunk_info": chunk_info
+            }
+            
+        except Exception as e:
+            logger.error(f"Error transcribing chunk {chunk_index + 1}: {str(e)}")
+            raise Exception(f"Chunk {chunk_index + 1} failed: {str(e)}")
+    
+    async def _transcribe_chunks_parallel(
+        self,
+        chunks: List[Dict[str, Any]],
+        language: str
+    ) -> List[Dict[str, Any]]:
+        """Transcribe multiple audio chunks in parallel, then assemble in order"""
+        try:
+            # Create tasks for all chunks
+            tasks = [
+                self._transcribe_single_chunk(
+                    chunk_info=chunk,
+                    language=language,
+                    chunk_index=chunk["chunk_index"],
+                    total_chunks=len(chunks)
+                )
+                for chunk in chunks
+            ]
+            
+            # Run all transcriptions in parallel
+            logger.info(f"Starting parallel transcription of {len(chunks)} chunks...")
+            start_time = asyncio.get_event_loop().time()
+            
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            
+            elapsed = asyncio.get_event_loop().time() - start_time
+            logger.info(f"Parallel transcription completed in {elapsed:.2f} seconds")
+            
+            # Check for errors
+            errors = [r for r in results if isinstance(r, Exception)]
+            if errors:
+                logger.error(f"Some chunks failed: {errors}")
+                raise Exception(f"Transcription failed for {len(errors)}/{len(chunks)} chunks")
+            
+            # Sort results by chunk index to maintain order
+            results.sort(key=lambda x: x["chunk_index"])
+            
+            # Assemble segments with proper timestamp offsets
+            all_segments = []
+            cumulative_offset = 0.0
+            
+            for result in results:
+                transcription = result["transcription"]
+                chunk_info = result["chunk_info"]
+                
+                # Adjust timestamps to account for chunk offset
+                if hasattr(transcription, 'segments'):
+                    for segment in transcription.segments:
+                        adjusted_segment = {
+                            "start": segment.start + cumulative_offset,
+                            "end": segment.end + cumulative_offset,
+                            "text": segment.text
+                        }
+                        
+                        # Adjust words if present
+                        if hasattr(segment, 'words') and segment.words:
+                            adjusted_words = []
+                            for word in segment.words:
+                                adjusted_words.append({
+                                    "start": word.start + cumulative_offset,
+                                    "end": word.end + cumulative_offset,
+                                    "word": word.word
+                                })
+                            adjusted_segment["words"] = adjusted_words
+                        
+                        all_segments.append(adjusted_segment)
+                
+                cumulative_offset += chunk_info.get("duration", 600)
+            
+            logger.info(f"Successfully assembled {len(all_segments)} segments from {len(chunks)} chunks")
+            return all_segments
+            
+        except Exception as e:
+            logger.error(f"Error in parallel transcription: {str(e)}")
+            raise
+    
     async def _transcribe_audio(
         self,
         audio_path: str,
@@ -338,59 +454,9 @@ class TranscriptionService:
                     chunks = await self._split_audio(processed_audio_path, chunk_duration_minutes=10)
                     chunks_to_cleanup = [chunk["path"] for chunk in chunks]
                     
-                    # Transcribe each chunk with context from previous chunk
-                    all_segments = []
-                    cumulative_offset = 0.0
-                    previous_text = ""
-                    
-                    for chunk_info in chunks:
-                        logger.info(f"Transcribing chunk {chunk_info['chunk_index'] + 1}/{len(chunks)}...")
-                        
-                        # Generate prompt with context from previous chunk
-                        prompt = self._generate_transcription_prompt(
-                            context="The audio contains technical terms, proper nouns, and company names.",
-                            previous_text=previous_text
-                        )
-                        
-                        with open(chunk_info["path"], "rb") as audio_file:
-                            transcription = await asyncio.to_thread(
-                                self.client.audio.transcriptions.create,
-                                model="whisper-1",
-                                file=audio_file,
-                                language=language,
-                                response_format="verbose_json",
-                                timestamp_granularities=["segment", "word"],
-                                prompt=prompt  # Add prompting for better accuracy
-                            )
-                        
-                        # Adjust timestamps to account for chunk offset
-                        if hasattr(transcription, 'segments'):
-                            for segment in transcription.segments:
-                                # Create adjusted segment dict (can't modify OpenAI objects)
-                                adjusted_segment = {
-                                    "start": segment.start + cumulative_offset,
-                                    "end": segment.end + cumulative_offset,
-                                    "text": segment.text
-                                }
-                                
-                                # Adjust words if present
-                                if hasattr(segment, 'words') and segment.words:
-                                    adjusted_words = []
-                                    for word in segment.words:
-                                        adjusted_words.append({
-                                            "start": word.start + cumulative_offset,
-                                            "end": word.end + cumulative_offset,
-                                            "word": word.word
-                                        })
-                                    adjusted_segment["words"] = adjusted_words
-                                
-                                all_segments.append(adjusted_segment)
-                        
-                        # Store the transcribed text for context in next chunk
-                        if hasattr(transcription, 'text'):
-                            previous_text = transcription.text
-                        
-                        cumulative_offset += chunk_info.get("duration", 600)  # 10 minutes default
+                    # Transcribe all chunks in PARALLEL for much faster processing
+                    logger.info(f"Transcribing {len(chunks)} chunks in parallel...")
+                    all_segments = await self._transcribe_chunks_parallel(chunks, language)
                     
                     # Create segment objects that mimic OpenAI's TranscriptionSegment
                     class SegmentObject:
