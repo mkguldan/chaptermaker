@@ -2,43 +2,127 @@
 Job tracking and status endpoints
 """
 
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Request
 from typing import List
 import logging
+import re
 from app.schemas.job import JobStatus, JobListResponse, JobResult
+from app.schemas.api_job import (
+    ApiJobResult,
+    ApiJobStatus,
+    CreateJobRequest,
+    CreateJobResponse,
+)
+from app.services.api_job_store import public_status
+from app.services.api_jobs import (
+    ApiJobService,
+    InputError,
+    ScheduleError,
+    get_api_job_service,
+)
 from app.services.job_manager import JobManager
 from app.services.storage import StorageService
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
+_JOB_ID_SAFE = re.compile(r"^[A-Za-z0-9_-]{1,80}$")
 
-@router.get("/{job_id}", response_model=JobStatus)
+
+def derive_base_url(request: Request) -> str:
+    """Public base URL of this service as seen by the caller (Cloud Run host)."""
+    host = request.headers.get("host", "")
+    if not host:
+        return ""
+    if host.startswith(("localhost", "127.0.0.1", "0.0.0.0", "[::1]")):
+        return f"{request.url.scheme}://{host}"
+    return f"https://{host}"
+
+
+@router.post("", status_code=202, response_model=CreateJobResponse)
+async def create_job(
+    body: CreateJobRequest,
+    request: Request,
+    service: ApiJobService = Depends(get_api_job_service),
+) -> CreateJobResponse:
+    """
+    Queue a chaptering job for a video in GCS (used by Inframe).
+
+    The objects are read with the service account; no signed URLs are needed.
+    Poll GET /api/v1/jobs/{job_id}, then fetch GET /api/v1/jobs/{job_id}/result.
+    """
+    service.dispatcher.learn_service_url(derive_base_url(request))
+    try:
+        job_id = await service.create_job(body)
+    except InputError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except ScheduleError:
+        raise HTTPException(status_code=503, detail="Could not schedule the job; try again")
+    return CreateJobResponse(job_id=job_id)
+
+
+@router.get(
+    "/{job_id}",
+    # Two shapes (api jobs vs legacy UI jobs), so no response_model filtering.
+    response_model=None,
+    responses={200: {"model": ApiJobStatus, "description": "Status of an api job"}},
+)
 async def get_job_status(
     job_id: str,
-    job_manager: JobManager = Depends()
-) -> JobStatus:
+    service: ApiJobService = Depends(get_api_job_service),
+):
     """
-    Get the status of a specific job
-    
-    Args:
-        job_id: Job identifier
-        
-    Returns:
-        Job status and metadata
+    Get the status of a job.
+
+    Jobs created with POST /api/v1/jobs return
+    {job_id, status: queued|processing|completed|failed, progress, message,
+    error, created_at, updated_at}. Jobs from the web UI keep their original
+    shape.
     """
+    if not _JOB_ID_SAFE.match(job_id):
+        raise HTTPException(status_code=404, detail="Job not found")
     try:
-        job = await job_manager.get_job(job_id)
-        if not job:
-            raise HTTPException(status_code=404, detail="Job not found")
-        
-        return job
-        
-    except HTTPException:
-        raise
+        doc = await service.get_doc(job_id)
     except Exception as e:
         logger.error(f"Error fetching job status: {str(e)}")
         raise HTTPException(status_code=500, detail="Failed to fetch job status")
+    if not doc:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if doc.get("kind") == "api":
+        return ApiJobStatus(**public_status(doc))
+    try:
+        return JobStatus(**doc)
+    except Exception as e:
+        logger.error(f"Unreadable job record {job_id}: {str(e)}")
+        raise HTTPException(status_code=404, detail="Job not found")
+
+
+@router.get("/{job_id}/result", response_model=ApiJobResult)
+async def get_api_job_result(
+    job_id: str,
+    service: ApiJobService = Depends(get_api_job_service),
+) -> ApiJobResult:
+    """
+    Result of a completed job created with POST /api/v1/jobs. All URIs point
+    into Chaptermaker's output bucket; copy what you need.
+
+    404 if the job does not exist, 409 if it has not completed.
+    """
+    try:
+        status, result = await service.get_result(job_id)
+    except Exception as e:
+        logger.error(f"Error fetching job result: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to fetch job result")
+    if status is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if status["status"] != "completed":
+        raise HTTPException(
+            status_code=409,
+            detail=f"Job is not completed. Current status: {status['status']}",
+        )
+    if result is None:
+        raise HTTPException(status_code=500, detail="Job result is missing")
+    return ApiJobResult(**result)
 
 
 @router.get("/", response_model=JobListResponse)

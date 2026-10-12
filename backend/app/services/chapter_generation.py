@@ -28,15 +28,17 @@ class ChapterGenerationService:
         self,
         transcription: Dict[str, Any],
         slide_count: int,
-        custom_prompts: Optional[Dict[str, str]] = None
+        custom_prompts: Optional[Dict[str, str]] = None,
+        title: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         """
         Generate chapters from transcription using GPT-5
         
         Args:
             transcription: Transcription data with text and segments
-            slide_count: Number of slides extracted from presentation
+            slide_count: Number of slides extracted from presentation (0 = no deck)
             custom_prompts: Optional custom prompts for generation
+            title: Optional talk title, given to the model as context
             
         Returns:
             List of chapter entries with timestamps and descriptions
@@ -45,12 +47,14 @@ class ChapterGenerationService:
             logger.info("Generating chapters using GPT-5 Responses API")
             
             # Prepare the input for GPT-5
-            input_text = self._prepare_input(transcription, slide_count, custom_prompts)
+            input_text = self._prepare_input(transcription, slide_count, custom_prompts, title)
             
             logger.debug(f"Calling GPT-5 with model: {settings.GPT5_MODEL}")
             
-            # Call GPT-5 using the new Responses API
-            response = self.client.responses.create(
+            # Call GPT-5 using the new Responses API (in a thread so the
+            # event loop keeps serving status polls during the call)
+            response = await asyncio.to_thread(
+                self.client.responses.create,
                 model=settings.GPT5_MODEL,
                 input=input_text,
                 reasoning={
@@ -129,7 +133,8 @@ class ChapterGenerationService:
         self,
         transcription: Dict[str, Any],
         slide_count: int,
-        custom_prompts: Optional[Dict[str, str]] = None
+        custom_prompts: Optional[Dict[str, str]] = None,
+        title: Optional[str] = None
     ) -> str:
         """Prepare input prompt for GPT-5"""
         
@@ -138,6 +143,18 @@ class ChapterGenerationService:
         if not base_prompt:
             # Format transcript with timestamps so GPT-5 can see WHEN things are said
             timestamped_transcript = self._format_transcript_with_timestamps(transcription)
+            if slide_count > 0:
+                slide_context = (
+                    f"- Total presentation slides: {slide_count}\n"
+                    f"- The presentation slides are numbered from 1 to {slide_count}"
+                )
+            else:
+                slide_context = (
+                    "- No presentation slides were provided: set slide_number to 0 "
+                    "and base chapters on the spoken content only"
+                )
+            if title:
+                slide_context = f"- Talk title: {title}\n" + slide_context
             
             base_prompt = f"""Analyze this presentation transcript and create chapter markers.
 
@@ -145,9 +162,8 @@ TRANSCRIPT WITH TIMESTAMPS:
 {timestamped_transcript}
 
 CONTEXT:
-- Total presentation slides: {slide_count}
+{slide_context}
 - Video duration: {transcription.get('duration', 'unknown')} seconds
-- The presentation slides are numbered from 1 to {slide_count}
 
 INSTRUCTIONS:
 1. Each line in the transcript shows EXACTLY when (in [MM:SS] format) that text is spoken

@@ -1,5 +1,5 @@
 """
-Transcription service using OpenAI GPT-4o
+Transcription service using the OpenAI Whisper API (model whisper-1)
 """
 
 import logging
@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 
 class TranscriptionService:
-    """Service for transcribing videos using OpenAI GPT-4o"""
+    """Service for transcribing videos using OpenAI Whisper (whisper-1)"""
     
     def __init__(self):
         # Initialize OpenAI client with increased timeout for large files
@@ -33,7 +33,7 @@ class TranscriptionService:
         job_id: str = None
     ) -> Dict[str, Any]:
         """
-        Transcribe video or audio file using OpenAI GPT-4o
+        Transcribe video or audio file using OpenAI Whisper (whisper-1)
         
         Args:
             video_path: GCS path to video or audio file
@@ -69,7 +69,7 @@ class TranscriptionService:
                     audio_path = await self._extract_audio(local_file_path)
                     should_delete_audio = True
                 
-                # Transcribe using OpenAI Whisper (GPT-4o-based)
+                # Transcribe using OpenAI Whisper (whisper-1)
                 transcription = await self._transcribe_audio(
                     audio_path,
                     language=language

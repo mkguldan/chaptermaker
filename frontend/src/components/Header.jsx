@@ -12,7 +12,7 @@ const Header = () => {
               <h1 className="text-xl font-bold text-gray-100">Video Chapter Maker</h1>
               <p className="text-xs text-gray-400 flex items-center">
                 <SparklesIcon className="h-3 w-3 mr-1" />
-                Powered by GPT-4o & GPT-5
+                Powered by Whisper & GPT-5
               </p>
             </div>
           </div>

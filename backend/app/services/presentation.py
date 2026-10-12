@@ -50,15 +50,7 @@ class PresentationService:
             local_path = await self.storage_service.download_to_temp(presentation_path)
             
             try:
-                # Determine file type and extract slides
-                file_ext = Path(local_path).suffix.lower()
-                
-                if file_ext in ['.pptx', '.ppt']:
-                    slides = await self._extract_powerpoint_slides(local_path, output_format)
-                elif file_ext == '.pdf':
-                    slides = await self._extract_pdf_slides(local_path, output_format)
-                else:
-                    raise ValueError(f"Unsupported presentation format: {file_ext}")
+                slides = await self.extract_slides_from_local(local_path, output_format)
                 
                 return {
                     "slide_count": len(slides),
@@ -74,6 +66,19 @@ class PresentationService:
         except Exception as e:
             logger.error(f"Error extracting slides: {str(e)}")
             raise
+            
+    async def extract_slides_from_local(
+        self,
+        local_path: str,
+        output_format: str = "jpg"
+    ) -> List[Dict[str, Any]]:
+        """Render a local .pptx/.ppt/.pdf into slide images (one dict per slide)"""
+        file_ext = Path(local_path).suffix.lower()
+        if file_ext in ['.pptx', '.ppt']:
+            return await self._extract_powerpoint_slides(local_path, output_format)
+        if file_ext == '.pdf':
+            return await self._extract_pdf_slides(local_path, output_format)
+        raise ValueError(f"Unsupported presentation format: {file_ext}")
             
     async def _extract_powerpoint_slides(
         self,
@@ -110,28 +115,22 @@ class PresentationService:
         slides = []
         
         try:
-            # Convert PDF pages to images
-            images = await asyncio.to_thread(
+            # Let pdftoppm write the pages straight to disk instead of holding
+            # every 300 dpi page in memory as a PIL image.
+            out_dir = tempfile.mkdtemp()
+            is_jpeg = output_format.lower() in ("jpg", "jpeg")
+            paths = await asyncio.to_thread(
                 convert_from_path,
                 pdf_path,
                 dpi=300,
-                fmt=output_format
+                fmt="jpeg" if is_jpeg else output_format,
+                jpegopt={"quality": 95} if is_jpeg else None,
+                output_folder=out_dir,
+                output_file="slide",
+                paths_only=True,
             )
             
-            # Save each page as an image
-            for idx, image in enumerate(images, 1):
-                # Create temporary file for slide
-                temp_file = tempfile.NamedTemporaryFile(
-                    delete=False,
-                    suffix=f".{output_format}"
-                )
-                slide_path = temp_file.name
-                temp_file.close()
-                
-                # Save image (map jpg -> JPEG for PIL)
-                pil_format = "JPEG" if output_format.lower() == "jpg" else output_format.upper()
-                image.save(slide_path, pil_format, quality=95)
-                
+            for idx, slide_path in enumerate(sorted(paths), 1):
                 slides.append({
                     "number": idx,
                     "local_path": slide_path,

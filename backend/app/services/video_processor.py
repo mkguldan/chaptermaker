@@ -87,7 +87,7 @@ class VideoProcessorService:
                 job_id,
                 JobStatusEnum.PROCESSING,
                 progress=30,
-                message="🎤 Transcribing audio with GPT-4o (this may take a few minutes)"
+                message="🎤 Transcribing audio with Whisper (whisper-1, this may take a few minutes)"
             )
             
             options = job.metadata.get("options", {})

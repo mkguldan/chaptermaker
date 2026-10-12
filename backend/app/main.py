@@ -13,6 +13,7 @@ import os
 from pathlib import Path
 from app.core.config import settings
 from app.api.v1.router import api_router
+from app.api.internal import router as internal_router
 from app.core.logging import setup_logging
 
 # Setup logging
@@ -68,6 +69,9 @@ async def health_check():
 
 # Include API router
 app.include_router(api_router, prefix="/api/v1")
+
+# Cloud Tasks target for api jobs (POST /internal/run/{job_id})
+app.include_router(internal_router, prefix="/internal")
 
 # Mount static files for frontend (if they exist)
 static_dir = Path(__file__).parent.parent / "static"

@@ -115,30 +115,28 @@ class PresentationConverter:
                 
             pdf_path = str(pdf_files[0])
             
-            # Convert PDF to images
+            # Convert PDF to images on disk, in a worker thread so the event
+            # loop (status polls, job heartbeats) is not blocked.
             from pdf2image import convert_from_path
             
-            images = convert_from_path(
+            Path(output_dir).mkdir(parents=True, exist_ok=True)
+            is_jpeg = output_format.lower() in ("jpg", "jpeg")
+            pages = await asyncio.to_thread(
+                convert_from_path,
                 pdf_path,
                 dpi=300,
-                fmt=output_format
+                fmt="jpeg" if is_jpeg else output_format,
+                jpegopt={"quality": 95} if is_jpeg else None,
+                output_folder=output_dir,
+                output_file="page",
+                paths_only=True,
             )
             
-            # Save images
             slides = []
-            # Map format for PIL (jpg -> JPEG)
-            pil_format = "JPEG" if output_format.lower() == "jpg" else output_format.upper()
-            
-            for idx, image in enumerate(images, 1):
+            for idx, page_path in enumerate(sorted(pages), 1):
                 filename = f"{idx:02d}.{output_format}"
                 output_path = Path(output_dir) / filename
-                
-                # Ensure output directory exists
-                output_path.parent.mkdir(parents=True, exist_ok=True)
-                
-                # Save image with high quality
-                image.save(output_path, pil_format, quality=95)
-                
+                Path(page_path).rename(output_path)
                 slides.append({
                     "number": idx,
                     "local_path": str(output_path),

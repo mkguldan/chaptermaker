@@ -3,7 +3,7 @@
 ## Prerequisites
 
 - Google Cloud Platform account
-- OpenAI API key (with access to GPT-4o and GPT-5)
+- OpenAI API key (with access to Whisper (whisper-1) and GPT-5)
 - Git
 - Docker & Docker Compose (for local development)
 - Python 3.11+ (for CLI tool)
@@ -115,7 +115,7 @@ After deployment completes, your services will be available at:
    - Check that the service account has proper permissions
 
 3. **OpenAI API errors**
-   - Verify your API key has access to GPT-4o and GPT-5
+   - Verify your API key has access to Whisper (whisper-1) and GPT-5
    - Check your OpenAI account has sufficient credits
 
 ### Getting Help

@@ -49,11 +49,9 @@ class StorageService:
             service_account_email = f"{settings.GCP_PROJECT_ID}@appspot.gserviceaccount.com"
             logger.warning(f"Service account email not in credentials, using computed: {service_account_email}")
             
-        # Log token info (safely)
+        # Never log the token itself
         token = self._credentials.token
-        if token:
-            logger.info(f"Access token available: {token[:20]}...{token[-20:] if len(token) > 40 else ''}")
-        else:
+        if not token:
             logger.error("No access token available!")
             
         return token, service_account_email
