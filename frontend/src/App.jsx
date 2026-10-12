@@ -24,7 +24,7 @@ function App() {
         </main>
         
         <footer className="mt-auto py-6 text-center text-sm text-gray-400">
-          <p>© 2025 Video Chapter Maker. Powered by OpenAI GPT-4o & GPT-5.</p>
+          <p>© 2025 Video Chapter Maker. Powered by OpenAI Whisper & GPT-5.</p>
         </footer>
       </div>
     </VideoProvider>

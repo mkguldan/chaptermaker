@@ -11,11 +11,43 @@ env:
   REGION: europe-west1
   SERVICE_NAME: chaptermaker
   ARTIFACT_REGISTRY: europe-west1-docker.pkg.dev
+  # Dedicated runtime identity (see README "Runtime service account and IAM").
+  # Override with the repository variable RUNTIME_SERVICE_ACCOUNT if needed.
+  RUNTIME_SERVICE_ACCOUNT: ${{ vars.RUNTIME_SERVICE_ACCOUNT || 'chaptermaker-runner@ai-mvp-452812.iam.gserviceaccount.com' }}
+  TASKS_QUEUE: video-processing
+  # Buckets POST /api/v1/jobs may read from (Inframe's bucket + our uploads).
+  ALLOWED_INPUT_BUCKETS: ai-mvp-452812-inframe-photos;chaptermaker-uploads-ai-mvp-452812
 
 jobs:
+  test:
+    name: Backend tests
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+        cache: pip
+        cache-dependency-path: backend/requirements.txt
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg poppler-utils
+        pip install -r backend/requirements.txt
+
+    - name: Run pytest
+      working-directory: backend
+      env:
+        OPENAI_API_KEY: test-key-not-real
+      run: python -m pytest -q
+
   deploy:
     name: Build and Deploy Unified Service
     runs-on: ubuntu-latest
+    needs: test
     
     steps:
     - name: Checkout code
@@ -44,24 +76,44 @@ jobs:
         docker push ${{ env.ARTIFACT_REGISTRY }}/${{ env.PROJECT_ID }}/chaptermaker-repo/app:${{ github.sha }}
         docker push ${{ env.ARTIFACT_REGISTRY }}/${{ env.PROJECT_ID }}/chaptermaker-repo/app:latest
 
+    - name: Resolve service URL
+      id: url
+      run: |
+        # Target URL + OIDC audience for Cloud Tasks. Empty on the very first
+        # deploy; the app then derives it from incoming requests.
+        URL=$(gcloud run services describe ${{ env.SERVICE_NAME }} \
+          --region ${{ env.REGION }} --format 'value(status.url)' 2>/dev/null || true)
+        echo "service_url=${URL}" >> "$GITHUB_OUTPUT"
+
     - name: Deploy to Cloud Run
       run: |
+        # Private service: callers need roles/run.invoker (Inframe's SA and the
+        # runtime SA, which Cloud Tasks uses for its OIDC token).
+        # timeout 3600 = Cloud Run max; each Cloud Tasks dispatch is <= 30 min and
+        # long jobs continue in follow-up tasks (see README).
+        # concurrency 4: /internal/run requests do ffmpeg + transcription work.
         gcloud run deploy ${{ env.SERVICE_NAME }} \
           --image ${{ env.ARTIFACT_REGISTRY }}/${{ env.PROJECT_ID }}/chaptermaker-repo/app:${{ github.sha }} \
           --region ${{ env.REGION }} \
           --platform managed \
-          --allow-unauthenticated \
+          --no-allow-unauthenticated \
+          --service-account ${{ env.RUNTIME_SERVICE_ACCOUNT }} \
           --set-env-vars "APP_ENV=production" \
           --set-env-vars "GCP_PROJECT_ID=${{ env.PROJECT_ID }}" \
           --set-env-vars "GCS_UPLOAD_BUCKET=chaptermaker-uploads-${{ env.PROJECT_ID }}" \
           --set-env-vars "GCS_OUTPUT_BUCKET=chaptermaker-outputs-${{ env.PROJECT_ID }}" \
-          --set-env-vars "CLOUD_TASKS_QUEUE=video-processing" \
+          --set-env-vars "CLOUD_TASKS_QUEUE=${{ env.TASKS_QUEUE }}" \
           --set-env-vars "CLOUD_TASKS_LOCATION=${{ env.REGION }}" \
+          --set-env-vars "TASKS_SERVICE_ACCOUNT=${{ env.RUNTIME_SERVICE_ACCOUNT }}" \
+          --set-env-vars "SERVICE_URL=${{ steps.url.outputs.service_url }}" \
+          --set-env-vars "TASK_MAX_ATTEMPTS=3" \
+          --set-env-vars "TASK_DISPATCH_DEADLINE_SECONDS=1800" \
+          --set-env-vars "ALLOWED_INPUT_BUCKETS=${{ env.ALLOWED_INPUT_BUCKETS }}" \
           --set-secrets "OPENAI_API_KEY=OPENAI_API_KEY:latest" \
-          --memory 2Gi \
+          --memory 4Gi \
           --cpu 2 \
-          --timeout 900 \
-          --concurrency 100 \
+          --timeout 3600 \
+          --concurrency 4 \
           --max-instances 10
 
     - name: Get Service URL

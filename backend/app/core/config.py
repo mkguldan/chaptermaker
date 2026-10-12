@@ -41,9 +41,41 @@ class Settings(BaseSettings):
     GCS_OUTPUT_BUCKET: str = Field(default="chaptermaker-outputs-ai-mvp-452812", env="GCS_OUTPUT_BUCKET")
     GOOGLE_APPLICATION_CREDENTIALS: Optional[str] = Field(default=None, env="GOOGLE_APPLICATION_CREDENTIALS")
     
-    # Cloud Tasks
-    CLOUD_TASKS_QUEUE: str = Field(default="video-processing", env="CLOUD_TASKS_QUEUE")
-    CLOUD_TASKS_LOCATION: str = Field(default="us-central1", env="CLOUD_TASKS_LOCATION")
+    # Cloud Tasks (used by POST /api/v1/jobs). When CLOUD_TASKS_QUEUE is empty the
+    # job runs inline in this process instead (local/dev fallback).
+    CLOUD_TASKS_QUEUE: str = Field(default="")
+    CLOUD_TASKS_LOCATION: str = Field(default="europe-west1")
+    # Public base URL of this service, used as the task target and OIDC audience.
+    # If empty it is derived from the Host header of the incoming request.
+    SERVICE_URL: str = Field(default="")
+    # Service account Cloud Tasks mints the OIDC token for. If empty it is read
+    # from the metadata server (the runtime service account).
+    TASKS_SERVICE_ACCOUNT: str = Field(default="")
+    # Must match the queue's maxAttempts. On the last attempt a failing job is
+    # marked failed instead of being retried.
+    TASK_MAX_ATTEMPTS: int = Field(default=3)
+    # Cloud Tasks allows at most 30 minutes per HTTP dispatch.
+    TASK_DISPATCH_DEADLINE_SECONDS: int = Field(default=1800)
+    # A task stops starting new work after this many seconds and hands the rest
+    # of the job to a continuation task. The longest single unit of work (one
+    # GPT-5 call with retries, or audio extraction) must fit in
+    # TASK_DISPATCH_DEADLINE_SECONDS - TASK_SOFT_BUDGET_SECONDS.
+    TASK_SOFT_BUDGET_SECONDS: int = Field(default=600)
+    # Lease held by the worker running a job; renewed every LEASE/3 seconds.
+    JOB_LEASE_SECONDS: int = Field(default=120)
+    # A queued/processing job with no heartbeat for this long is reported failed.
+    JOB_STALE_SECONDS: int = Field(default=3600)
+    # Audio is transcribed in chunks of this length; each chunk is checkpointed.
+    TRANSCRIBE_CHUNK_SECONDS: int = Field(default=600)
+    TRANSCRIBE_PARALLELISM: int = Field(default=4)
+    TRANSCRIPTION_MODEL: str = Field(default="whisper-1")
+    # Inputs larger than this are streamed into ffmpeg over HTTPS instead of
+    # being downloaded to /tmp (which is memory on Cloud Run).
+    STREAM_INPUT_THRESHOLD_MB: int = Field(default=512)
+    FFMPEG_TIMEOUT_SECONDS: int = Field(default=1500)
+    # Optional allowlist of buckets POST /api/v1/jobs may read (separated by
+    # "," or ";" -- use ";" in gcloud --set-env-vars, which splits on commas).
+    ALLOWED_INPUT_BUCKETS: str = Field(default="")
     
     # Security
     SECRET_KEY: str = Field(
