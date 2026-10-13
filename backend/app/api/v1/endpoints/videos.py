@@ -2,7 +2,7 @@
 Video processing endpoints
 """
 
-from fastapi import APIRouter, UploadFile, File, HTTPException, Depends, BackgroundTasks
+from fastapi import APIRouter, UploadFile, File, HTTPException, Depends, BackgroundTasks, Request
 from typing import Dict, List
 import logging
 from app.schemas.video import (
@@ -13,10 +13,40 @@ from app.schemas.video import (
 )
 from app.services.storage import StorageService
 from app.services.video_processor import VideoProcessorService
+from app.services.api_jobs import ApiJobService, get_api_job_service
+from app.schemas.job import JobStatusEnum
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+
+async def start_job(
+    job_id: str,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    video_processor: VideoProcessorService,
+    jobs: ApiJobService,
+) -> None:
+    """
+    Runs a web UI job. With Cloud Tasks it runs inside a task request, so
+    Cloud Run keeps CPU allocated; a BackgroundTask after the response can
+    be throttled and cut off. Without a queue (local dev) it runs in-process.
+    """
+    if jobs.dispatcher.inline:
+        background_tasks.add_task(video_processor.process_video_async, job_id=job_id)
+        return
+    from app.api.v1.endpoints.jobs import derive_base_url
+
+    jobs.dispatcher.learn_service_url(derive_base_url(request))
+    try:
+        await jobs.dispatcher.enqueue_ui(job_id)
+    except Exception:
+        logger.exception("Could not enqueue UI job %s", job_id)
+        await video_processor.job_manager.update_job(
+            job_id, JobStatusEnum.FAILED, error="Could not schedule processing", message="Processing failed"
+        )
+        raise HTTPException(status_code=503, detail="Could not schedule processing; try again")
 
 
 @router.post("/upload", response_model=VideoUploadResponse)
@@ -76,8 +106,10 @@ async def get_upload_url(
 @router.post("/process", response_model=VideoProcessResponse)
 async def process_video(
     request: VideoProcessRequest,
+    http_request: Request,
     background_tasks: BackgroundTasks,
-    video_processor: VideoProcessorService = Depends()
+    video_processor: VideoProcessorService = Depends(),
+    jobs: ApiJobService = Depends(get_api_job_service),
 ) -> VideoProcessResponse:
     """
     Process a single video with its presentation
@@ -96,11 +128,7 @@ async def process_video(
             options=request.options
         )
         
-        # Add to background tasks
-        background_tasks.add_task(
-            video_processor.process_video_async,
-            job_id=job_id
-        )
+        await start_job(job_id, http_request, background_tasks, video_processor, jobs)
         
         return VideoProcessResponse(
             job_id=job_id,
@@ -108,6 +136,8 @@ async def process_video(
             message="Video processing started"
         )
         
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error starting video processing: {str(e)}")
         raise HTTPException(status_code=500, detail="Failed to start video processing")
@@ -116,8 +146,10 @@ async def process_video(
 @router.post("/batch", response_model=List[VideoProcessResponse])
 async def batch_process_videos(
     request: BatchProcessRequest,
+    http_request: Request,
     background_tasks: BackgroundTasks,
-    video_processor: VideoProcessorService = Depends()
+    video_processor: VideoProcessorService = Depends(),
+    jobs: ApiJobService = Depends(get_api_job_service),
 ) -> List[VideoProcessResponse]:
     """
     Process multiple videos in batch
@@ -146,11 +178,7 @@ async def batch_process_videos(
                 options=item.options
             )
             
-            # Add to background tasks
-            background_tasks.add_task(
-                video_processor.process_video_async,
-                job_id=job_id
-            )
+            await start_job(job_id, http_request, background_tasks, video_processor, jobs)
             
             responses.append(VideoProcessResponse(
                 job_id=job_id,

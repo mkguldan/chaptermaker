@@ -254,8 +254,14 @@ Q&A chapters point at `qa_slide_uri`. Without a presentation, `slides` is empty 
 
 ## How jobs execute (Cloud Tasks)
 
-The web UI's `/videos/process` still uses FastAPI `BackgroundTasks`. API jobs do not, because on
-Cloud Run the CPU is throttled after the response is sent and the instance can be stopped mid-job.
+Jobs never run as FastAPI `BackgroundTasks`, because on Cloud Run the CPU is throttled after the
+response is sent and the instance can be stopped mid-job. They run inside a Cloud Tasks request.
+
+The web UI's `/videos/process` and `/videos/batch` create a task named `<job hex>-ui` that calls
+`POST /internal/run-ui/<job_id>`. That pipeline has no checkpoints, so it runs once: its own errors
+mark the job failed, and a redelivery of a job that is still `processing` (the instance died, or the
+run outlived the 30-minute task deadline) marks it failed instead of starting again. Without
+`CLOUD_TASKS_QUEUE` (local dev) the UI job runs in-process. API jobs:
 
 1. `POST /api/v1/jobs` writes the job record (`gs://<output bucket>/job-tracking/<job_id>.json`,
    `"kind": "api"`) and creates a Cloud Tasks HTTP task named `<job hex>-0` that calls
@@ -364,8 +370,8 @@ gcloud tasks queues update video-processing --location=$REGION --project=$PROJEC
 Keep `TASK_MAX_ATTEMPTS` equal to the queue's `--max-attempts`, and keep `--max-backoff` well below
 `JOB_STALE_SECONDS`.
 
-The runtime SA has no project-level `storage.buckets.list`, so `/api/v1/health/ready` reports GCS as
-unhealthy; `/health` is the liveness check. With the service private, open the web UI through
+`/api/v1/health/ready` checks GCS by listing one object in the output bucket (the runtime SA has no
+project-level `storage.buckets.list`); `/health` is the liveness check. With the service private, open the web UI through
 `gcloud run services proxy chaptermaker --region europe-west1`.
 
 ### Calling it from another service

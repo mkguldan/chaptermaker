@@ -4,7 +4,8 @@ Dispatches job-runner tasks.
 CloudTasksDispatcher: creates an HTTP task that POSTs /internal/run/{job_id}
 on this same service with an OIDC token, so the work happens inside a request
 (Cloud Run keeps CPU allocated) and is retried by the queue if the instance
-dies.
+dies. Web UI jobs (POST /api/v1/videos/process) go the same way to
+/internal/run-ui/{job_id}.
 
 InlineDispatcher: local/dev fallback used when CLOUD_TASKS_QUEUE is not set;
 runs the job in this process with asyncio.
@@ -20,6 +21,7 @@ from typing import Awaitable, Callable, Optional, Set
 logger = logging.getLogger(__name__)
 
 INTERNAL_RUN_PATH = "/internal/run"
+UI_RUN_PATH = "/internal/run-ui"
 METADATA_SA_URL = (
     "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/email"
 )
@@ -34,6 +36,11 @@ def task_id_for(job_id: str, seq: int) -> str:
     return f"{job_id.split('_', 1)[-1]}-{seq}"
 
 
+def ui_task_id_for(job_id: str) -> str:
+    """Task name for a web UI job: one task per job."""
+    return f"{job_id.split('_', 1)[-1]}-ui"
+
+
 class Dispatcher:
     inline = False
 
@@ -41,6 +48,9 @@ class Dispatcher:
         pass
 
     async def enqueue(self, job_id: str, seq: int) -> None:
+        raise NotImplementedError
+
+    async def enqueue_ui(self, job_id: str) -> None:
         raise NotImplementedError
 
 
@@ -102,17 +112,19 @@ class CloudTasksDispatcher(Dispatcher):
             self.service_account = resp.text.strip()
         return self.service_account
 
-    def build_task(self, job_id: str, seq: int, service_account: str) -> dict:
+    def build_task(self, job_id: str, seq: int, service_account: str, ui: bool = False) -> dict:
         from google.protobuf import duration_pb2
 
         if not self.service_url:
             raise RuntimeError("SERVICE_URL is not set and could not be derived")
         parent = self.client.queue_path(self.project, self.location, self.queue)
+        task_id = ui_task_id_for(job_id) if ui else task_id_for(job_id, seq)
+        path = UI_RUN_PATH if ui else INTERNAL_RUN_PATH
         return {
-            "name": f"{parent}/tasks/{task_id_for(job_id, seq)}",
+            "name": f"{parent}/tasks/{task_id}",
             "http_request": {
                 "http_method": "POST",
-                "url": f"{self.service_url}{INTERNAL_RUN_PATH}/{job_id}",
+                "url": f"{self.service_url}{path}/{job_id}",
                 "headers": {"Content-Type": "application/json"},
                 "body": json.dumps({"seq": seq}).encode(),
                 "oidc_token": {
@@ -124,10 +136,16 @@ class CloudTasksDispatcher(Dispatcher):
         }
 
     async def enqueue(self, job_id: str, seq: int) -> None:
+        await self._create(job_id, seq, ui=False)
+
+    async def enqueue_ui(self, job_id: str) -> None:
+        await self._create(job_id, 0, ui=True)
+
+    async def _create(self, job_id: str, seq: int, ui: bool) -> None:
         from google.api_core import exceptions as gexc
 
         sa = await self._service_account_email()
-        task = self.build_task(job_id, seq, sa)
+        task = self.build_task(job_id, seq, sa, ui=ui)
         parent = self.client.queue_path(self.project, self.location, self.queue)
         try:
             await asyncio.to_thread(self.client.create_task, parent=parent, task=task)

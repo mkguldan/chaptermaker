@@ -86,6 +86,11 @@ class RecordingDispatcher(Dispatcher):
             raise RuntimeError("cloud tasks unavailable")
         self.enqueued.append((job_id, seq))
 
+    async def enqueue_ui(self, job_id):
+        if self.fail:
+            raise RuntimeError("cloud tasks unavailable")
+        self.enqueued.append((job_id, "ui"))
+
 
 class FakeSteps:
     """Scripted stand-in for ffmpeg / Whisper / slide rendering / GPT-5."""
