@@ -110,3 +110,11 @@ async def test_inline_dispatcher_runs_job(env):
         if (await env.store.get(job_id))["status"] == "completed":
             break
     assert (await env.store.get(job_id))["status"] == "completed"
+
+
+async def test_ui_task_shape():
+    client = FakeTasksClient()
+    await make(client).enqueue_ui("job_0123456789ab")
+    parent, task = client.created[0]
+    assert task["name"] == f"{parent}/tasks/0123456789ab-ui"
+    assert task["http_request"]["url"] == "https://chaptermaker-123.europe-west1.run.app/internal/run-ui/job_0123456789ab"

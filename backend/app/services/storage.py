@@ -453,8 +453,9 @@ class StorageService:
     async def check_health(self) -> bool:
         """Check GCS connectivity"""
         try:
-            # Try to list buckets as a health check
-            await asyncio.to_thread(list, self.client.list_buckets(max_results=1))
+            # List one object in our own bucket: the runtime account may not
+            # list buckets project-wide.
+            await asyncio.to_thread(list, self.client.list_blobs(self.output_bucket, max_results=1))
             return True
         except Exception as e:
             logger.error(f"GCS health check failed: {str(e)}")
